@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>kollab</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            bg:        '#0e0e10',
+            panel:     '#17171a',
+            claude:    '#cc6600',
+            claudeTint:'#3a2310',
+            codex:     '#3b6fb3',
+            codexTint: '#162536',
+            user:      '#e5e5e5',
+            userPanel: '#202024',
+            muted:     '#888888',
+            verdictRevised: '#d4a017',
+            verdictAgree:   '#4caf50',
+            verdictDisagree:'#cf6679',
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-bg text-user h-full flex flex-col overflow-hidden font-mono text-sm">
+
+  <!-- top bar -->
+  <header class="flex items-center justify-between px-4 py-2 bg-panel border-b border-white/10 shrink-0">
+    <span class="font-bold tracking-wide text-base">kollab</span>
+    <div class="flex gap-2">
+      <button id="btn-configure"
+        class="px-3 py-1 rounded border border-white/20 text-muted hover:text-user hover:border-white/40 transition">
+        ⚙ Configure
+      </button>
+      <button id="btn-new-session"
+        class="px-3 py-1 rounded border border-white/20 text-muted hover:text-user hover:border-white/40 transition">
+        ↻ New Session
+      </button>
+    </div>
+  </header>
+
+  <!-- dialogue area -->
+  <main id="dialogue"
+    class="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3 scroll-smooth">
+    <p id="empty-state" class="text-muted text-center mt-16">
+      Start a new session to begin the dialogue.
+    </p>
+  </main>
+
+  <!-- status strip -->
+  <div id="status-strip"
+    class="px-4 py-1 bg-panel border-t border-white/10 text-muted text-xs shrink-0">
+    idle
+  </div>
+
+  <!-- input bar -->
+  <footer class="flex gap-2 px-4 py-2 bg-panel border-t border-white/10 shrink-0">
+    <input id="user-input" type="text" placeholder="Inject a message or reference a turn (e.g. C-3)…"
+      class="flex-1 bg-userPanel border border-white/20 rounded px-3 py-1.5 text-user
+             placeholder-muted focus:outline-none focus:border-white/40" />
+    <button id="btn-send"
+      class="px-3 py-1.5 rounded bg-white/10 hover:bg-white/20 transition">Send</button>
+    <button id="btn-stop"
+      class="px-3 py-1.5 rounded bg-verdictDisagree/80 hover:bg-verdictDisagree transition hidden">Stop</button>
+    <button id="btn-resume"
+      class="px-3 py-1.5 rounded bg-verdictAgree/80 hover:bg-verdictAgree transition hidden">Resume</button>
+  </footer>
+
+  <!-- new session modal -->
+  <div id="modal-new-session"
+    class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50">
+    <div class="bg-panel border border-white/20 rounded-lg p-6 w-full max-w-lg flex flex-col gap-4">
+      <h2 class="text-base font-bold">New Session</h2>
+      <textarea id="goal-input" rows="4"
+        placeholder="Describe the goal for Claude and Codex to collaborate on…"
+        class="bg-userPanel border border-white/20 rounded px-3 py-2 text-user
+               placeholder-muted focus:outline-none focus:border-white/40 resize-none"></textarea>
+      <div class="flex gap-2 justify-end">
+        <button id="btn-modal-cancel"
+          class="px-4 py-1.5 rounded border border-white/20 text-muted hover:text-user transition">Cancel</button>
+        <button id="btn-modal-start"
+          class="px-4 py-1.5 rounded bg-claude text-white hover:bg-claude/80 transition">Start</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- configure modal -->
+  <div id="modal-configure"
+    class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50">
+    <div class="bg-panel border border-white/20 rounded-lg p-6 w-full max-w-lg flex flex-col gap-4 overflow-y-auto max-h-[90vh]">
+      <h2 class="text-base font-bold">Configure</h2>
+      <form id="config-form" class="flex flex-col gap-3">
+        <!-- fields injected by app.js -->
+      </form>
+      <div class="flex gap-2 justify-end">
+        <button id="btn-config-cancel"
+          class="px-4 py-1.5 rounded border border-white/20 text-muted hover:text-user transition">Cancel</button>
+        <button id="btn-config-save"
+          class="px-4 py-1.5 rounded bg-codex text-white hover:bg-codex/80 transition">Save</button>
+      </div>
+      <p id="config-errors" class="text-verdictDisagree text-xs hidden"></p>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
