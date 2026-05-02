@@ -216,3 +216,54 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- Testing / coverage ---
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# --- Type checkers / linters ---
+.mypy_cache/
+.ruff_cache/
+.pyright/
+
+# --- IDE / editor ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# --- kollab runtime data ---
+# user config and session logs live in ~/.kollab/ but if anyone
+# accidentally creates a local one or mounts it in, ignore it
+.kollab/
+sessions/
+workspace/
+*.jsonl
+
+# --- Docker ---
+.dockerignore.local
+
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- Claude Code / Codex local state ---
+# don't commit local agent caches if they end up in the repo dir
+.claude/
+.codex/
+
+# --- OS / misc ---
+Thumbs.db
+desktop.ini
