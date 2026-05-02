@@ -1,3 +1,9 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/klokworkai/kollab/main/kollab-logo.png" height="320"/>
+</p>
+
+<p align="center"><em>Two Minds | One Code</em></p>
+
 # kollab
 
 A transparent, adversarial-collaborative dialogue between Claude Code and OpenAI Codex on a single user-defined goal.
