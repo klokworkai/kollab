@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/klokworkai/kollab/main/kollab-logo.png" height="320"/>
+  <img src="kollab-logo.png"/>
 </p>
 
 <p align="center"><em>Two Minds | One Code</em></p>
