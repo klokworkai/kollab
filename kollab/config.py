@@ -34,10 +34,22 @@ def load_config() -> Config:
     if not CONFIG_PATH.exists():
         cfg = Config()
         save_config(cfg)
-        return cfg
-    with CONFIG_PATH.open("rb") as f:
-        data = tomllib.load(f)
-    return Config(**data)
+    else:
+        with CONFIG_PATH.open("rb") as f:
+            data = tomllib.load(f)
+        cfg = Config(**data)
+    
+    # expand tildes on all path fields
+    cfg.claude_workdir = _expand(cfg.claude_workdir)
+    cfg.codex_workdir = _expand(cfg.codex_workdir)
+    cfg.sessions_dir = _expand(cfg.sessions_dir)
+    
+    # auto-create working dirs
+    Path(cfg.claude_workdir).mkdir(parents=True, exist_ok=True)
+    Path(cfg.codex_workdir).mkdir(parents=True, exist_ok=True)
+    Path(cfg.sessions_dir).mkdir(parents=True, exist_ok=True)
+    
+    return cfg
 
 
 def save_config(cfg: Config) -> None:
