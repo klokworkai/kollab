@@ -1,4 +1,4 @@
-from kollab.orchestrator import _parse_verdict
+from kollab.ace import _parse_verdict
 
 
 def test_agree() -> None:

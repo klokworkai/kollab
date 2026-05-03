@@ -1,0 +1,268 @@
+from __future__ import annotations
+
+import asyncio
+import re
+from collections.abc import AsyncIterator, Callable
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Literal
+
+from .agents.base import AgentChunk
+from .agents.claude_agent import ClaudeAgent
+from .agents.codex_agent import CodexAgent
+from .config import Config
+from .prompts import SYSTEM_CRITIC, SYSTEM_PRODUCER, build_turn_prompt, TURN_PROMPT_FIRST
+from .transcript import TranscriptLog
+
+_VERDICT_RE = re.compile(r"<verdict>\s*(AGREE|DISAGREE|REVISED)\s*</verdict>", re.I)
+
+Verdict = Literal["AGREE", "DISAGREE", "REVISED"]
+SessionState = Literal[
+    "idle", "fanning_out", "claude_turn", "codex_turn",
+    "awaiting_user", "done", "halted",
+]
+
+# Broadcast callback: receives a JSON-serialisable dict per event.
+BroadcastFn = Callable[[dict], None]
+
+
+@dataclass
+class SessionOverrides:
+    round_limit: int | None = None
+    max_tokens_per_turn: int | None = None
+    max_tokens_per_session: int | None = None
+    claude_model: str | None = None
+    codex_model: str | None = None
+
+
+@dataclass
+class Turn:
+    id: str
+    actor: str
+    role: str
+    round: int
+    text: str = ""
+    reasoning: str = ""
+    verdict: Verdict | None = None
+    started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    ended_at: datetime | None = None
+
+
+class Session:
+    def __init__(self, cfg: Config, broadcast: BroadcastFn,
+                 overrides: SessionOverrides | None = None) -> None:
+        ov = overrides or SessionOverrides()
+        self.id: str = _make_session_id()
+        self.goal: str = ""
+        self.round: int = 0
+        self.turns: list[Turn] = []
+        self.state: SessionState = "idle"
+        self.consecutive_agrees: int = 0
+        self._cfg = cfg
+        self._broadcast = broadcast
+        self._round_limit: int = ov.round_limit if ov.round_limit is not None else cfg.round_limit
+        self._max_tokens_per_turn: int | None = ov.max_tokens_per_turn
+        self._max_tokens_per_session: int | None = ov.max_tokens_per_session
+        self._session_tokens: int = 0
+        self._claude = ClaudeAgent(
+            role="producer",
+            binary=cfg.claude_binary,
+            model=ov.claude_model or cfg.claude_model,
+            workdir=Path(cfg.claude_workdir).expanduser().__str__(),
+        )
+        self._codex = CodexAgent(
+            role="critic",
+            binary=cfg.codex_binary,
+            model=ov.codex_model or cfg.codex_model,
+            workdir=Path(cfg.codex_workdir).expanduser().__str__(),
+        )
+        self._transcript: TranscriptLog | None = None
+        self._claude_turn_count: int = 0
+        self._codex_turn_count: int = 0
+        self._pending_user_input: str = ""
+        self._halt_requested: bool = False
+        self._done_reason: str = ""
+
+    # ------------------------------------------------------------------ lifecycle
+
+    async def start(self, goal: str) -> None:
+        self.goal = goal
+        sessions_dir = Path(self._cfg.sessions_dir).expanduser()
+        self._transcript = TranscriptLog(self.id, sessions_dir)
+        self._log({"kind": "session_start", "actor": "system", "role": "system",
+                   "round": 0, "payload": {"goal": goal}})
+        self._broadcast({"type": "state", "state": "fanning_out", "round": 0,
+                         "consecutive_agrees": 0})
+        self.state = "fanning_out"
+        await asyncio.gather(
+            self._claude.start(SYSTEM_PRODUCER, goal),
+            self._codex.start(SYSTEM_CRITIC, goal),
+        )
+        self.state = "claude_turn"
+        self._broadcast({"type": "state", "state": "claude_turn", "round": 1,
+                         "consecutive_agrees": 0})
+
+    async def run_turn(self) -> None:
+        if self.state not in ("claude_turn", "codex_turn"):
+            return
+
+        is_claude = self.state == "claude_turn"
+        agent = self._claude if is_claude else self._codex
+        actor = "claude" if is_claude else "codex"
+        role = "producer" if is_claude else "critic"
+        peer_name = "Codex" if is_claude else "Claude"
+
+        if is_claude:
+            self._claude_turn_count += 1
+            turn_id = f"C-{self._claude_turn_count}"
+        else:
+            self._codex_turn_count += 1
+            turn_id = f"X-{self._codex_turn_count}"
+
+        self.round = (self._claude_turn_count + self._codex_turn_count + 1) // 2
+
+        turn = Turn(id=turn_id, actor=actor, role=role, round=self.round)
+        self.turns.append(turn)
+        self._log({"kind": "turn_start", "turn_id": turn_id, "actor": actor,
+                   "role": role, "round": self.round, "payload": {}})
+        self._broadcast({"type": "turn_start", "turn_id": turn_id,
+                         "actor": actor, "role": role, "round": self.round})
+
+        # build prompt
+        if len(self.turns) == 1:
+            prompt = TURN_PROMPT_FIRST
+        else:
+            last_peer_turn = self._last_turn_for(
+                "codex" if is_claude else "claude"
+            )
+            peer_text = last_peer_turn.text if last_peer_turn else ""
+            user_injection = self._pending_user_input
+            self._pending_user_input = ""
+            prompt = build_turn_prompt(self.round, peer_name, peer_text, user_injection)
+
+        if self._max_tokens_per_turn:
+            prompt += f"\n[Keep this response under {self._max_tokens_per_turn} tokens.]"
+
+        # stream the response
+        self._halt_requested = False
+        turn_tokens_in = 0
+        turn_tokens_out = 0
+        async for chunk in agent.send(prompt):
+            if self._halt_requested:
+                break
+            if chunk.kind == "text":
+                turn.text += chunk.content
+                self._broadcast({"type": "turn_chunk", "turn_id": turn_id,
+                                 "kind": "text", "content": chunk.content})
+            elif chunk.kind == "reasoning":
+                turn.reasoning += chunk.content
+                self._broadcast({"type": "turn_chunk", "turn_id": turn_id,
+                                 "kind": "reasoning", "content": chunk.content})
+            elif chunk.kind == "done":
+                meta = chunk.metadata or {}
+                turn_tokens_in = meta.get("tokens_in") or 0
+                turn_tokens_out = meta.get("tokens_out") or 0
+                self._broadcast({"type": "turn_chunk", "turn_id": turn_id,
+                                 "kind": "done", "content": ""})
+
+        self._session_tokens += turn_tokens_in + turn_tokens_out
+
+        turn.ended_at = datetime.now(timezone.utc)
+        turn.verdict = _parse_verdict(turn.text)
+        duration_ms = int(
+            (turn.ended_at - turn.started_at).total_seconds() * 1000
+        )
+
+        self._log({"kind": "turn_end", "turn_id": turn_id, "actor": actor,
+                   "role": role, "round": self.round,
+                   "payload": {"text": turn.text, "reasoning": turn.reasoning,
+                                "verdict": turn.verdict, "duration_ms": duration_ms}})
+        self._broadcast({"type": "turn_end", "turn_id": turn_id,
+                         "verdict": turn.verdict, "duration_ms": duration_ms})
+
+        if self.state == "halted":
+            self._broadcast({"type": "state", "state": "halted",
+                             "round": self.round, "consecutive_agrees": self.consecutive_agrees})
+            return
+
+        # convergence tracking
+        if turn.verdict == "AGREE":
+            self.consecutive_agrees += 1
+        else:
+            self.consecutive_agrees = 0
+
+        if self.consecutive_agrees >= 2:
+            self._done_reason = "convergence"
+            self.state = "done"
+        elif self._max_tokens_per_session and self._session_tokens >= self._max_tokens_per_session:
+            self._done_reason = "token_limit"
+            self.state = "done"
+        elif self.round >= self._round_limit and not is_claude:
+            self._done_reason = "round_limit"
+            self.state = "done"
+        else:
+            self.state = "codex_turn" if is_claude else "claude_turn"
+
+        self._broadcast({"type": "state", "state": self.state,
+                         "round": self.round, "consecutive_agrees": self.consecutive_agrees})
+        if self.state == "done":
+            self._log({"kind": "session_end", "actor": "system", "role": "system",
+                       "round": self.round, "payload": {"reason": self._done_reason}})
+            self._broadcast({"type": "session_done", "reason": self._done_reason})
+
+    async def handle_user_input(self, text: str) -> None:
+        self._log({"kind": "user_input", "actor": "user", "role": "user",
+                   "round": self.round, "payload": {"text": text}})
+        self._pending_user_input = text
+
+    def stop(self) -> None:
+        self.state = "halted"
+        self._halt_requested = True
+
+    async def resume(self) -> None:
+        if self.state != "halted":
+            return
+        # determine whose turn it was when halted — re-run it
+        if self.turns and self.turns[-1].actor == "claude":
+            self.state = "codex_turn"
+        else:
+            self.state = "claude_turn"
+        self._broadcast({"type": "state", "state": self.state,
+                         "round": self.round, "consecutive_agrees": self.consecutive_agrees})
+
+    async def close(self) -> None:
+        await asyncio.gather(
+            self._claude.stop(),
+            self._codex.stop(),
+            return_exceptions=True,
+        )
+        if self._transcript:
+            self._transcript.close()
+
+    # ------------------------------------------------------------------ helpers
+
+    def _log(self, event: dict) -> None:
+        if self._transcript:
+            event["session_id"] = self.id
+            self._transcript.append(event)
+
+    def _last_turn_for(self, actor: str) -> Turn | None:
+        for t in reversed(self.turns):
+            if t.actor == actor:
+                return t
+        return None
+
+
+# ------------------------------------------------------------------ helpers
+
+def _make_session_id() -> str:
+    import uuid
+    return f"sess_{uuid.uuid4().hex[:8]}"
+
+
+def _parse_verdict(text: str) -> Verdict | None:
+    m = _VERDICT_RE.search(text)
+    if m:
+        return m.group(1).upper()  # type: ignore[return-value]
+    return None

@@ -22,6 +22,8 @@ class Config(BaseModel):
     codex_workdir: str = "~/.kollab/workspace/codex"
 
     round_limit: int = 8
+    max_tokens_per_turn: int | None = None
+    max_tokens_per_session: int | None = None
     port: int = 8765
     sessions_dir: str = "~/.kollab/sessions"
 
@@ -54,8 +56,9 @@ def load_config() -> Config:
 
 def save_config(cfg: Config) -> None:
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    data = {k: v for k, v in cfg.model_dump().items() if v is not None}
     with CONFIG_PATH.open("wb") as f:
-        tomli_w.dump(cfg.model_dump(), f)
+        tomli_w.dump(data, f)
 
 
 def validate_config(cfg: Config) -> list[str]:

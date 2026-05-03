@@ -1,4 +1,4 @@
-from kollab.orchestrator import Session
+from kollab.ace import Session
 from kollab.config import Config
 
 
