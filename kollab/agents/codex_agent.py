@@ -19,15 +19,18 @@ class CodexAgent(Agent):
         self._model = model
         self._workdir = workdir
         self._session_id: str | None = None
+        self._system_prompt: str = ""
+        self._started: bool = False
 
     async def start(self, system_prompt: str, goal: str) -> None:
-        """Deliver system prompt + goal as the first message to start the session."""
-        first_message = f"{system_prompt}\n\n{goal}"
-        async for _ in self._run(first_message, new_session=True):
-            pass
+        self._system_prompt = system_prompt
+        self._started = False
 
     async def send(self, message: str) -> AsyncIterator[AgentChunk]:
-        async for chunk in self._run(message, new_session=False):
+        if not self._started:
+            message = f"{self._system_prompt}\n\n{message}"
+            self._started = True
+        async for chunk in self._run(message, new_session=self._session_id is None):
             yield chunk
 
     async def stop(self) -> None:

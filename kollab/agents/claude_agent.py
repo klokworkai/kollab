@@ -29,11 +29,6 @@ class ClaudeAgent(Agent):
         )
         self._client = ClaudeSDKClient(options=options)
         await self._client.connect()
-        # deliver goal as first message; consume full response to warm up the session
-        await self._client.query(goal)
-        async for msg in self._client.receive_response():
-            if isinstance(msg, sdk_types.ResultMessage):
-                self._session_id = msg.session_id
 
     async def send(self, message: str) -> AsyncIterator[AgentChunk]:
         if self._client is None:

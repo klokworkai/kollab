@@ -98,6 +98,7 @@ function switchTab(tabId) {
     dialogue.appendChild(node);
   }
   dialogue.scrollTop = tab.scrollTop;
+  stickyBottom = true;
 
   renderTabBar();
   updateInputStrip(tab);
@@ -397,6 +398,8 @@ btnStop.addEventListener('click', async () => {
 btnResume.addEventListener('click', () => {
   fetch('/api/session/resume', { method: 'POST' });
   btnResume.classList.add('hidden');
+  const tab = activeTab();
+  if (tab) { tab.state = 'active'; updateInputStrip(tab); }
 });
 
 function sendInput() {

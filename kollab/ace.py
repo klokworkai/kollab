@@ -12,7 +12,7 @@ from .agents.base import AgentChunk
 from .agents.claude_agent import ClaudeAgent
 from .agents.codex_agent import CodexAgent
 from .config import Config
-from .prompts import SYSTEM_CRITIC, SYSTEM_PRODUCER, build_turn_prompt, TURN_PROMPT_FIRST
+from .prompts import SYSTEM_CRITIC, SYSTEM_PRODUCER, build_turn_prompt
 from .transcript import TranscriptLog
 
 _VERDICT_RE = re.compile(r"<verdict>\s*(AGREE|DISAGREE|REVISED)\s*</verdict>", re.I)
@@ -131,7 +131,7 @@ class Session:
 
         # build prompt
         if len(self.turns) == 1:
-            prompt = TURN_PROMPT_FIRST
+            prompt = f"[Round 1] {self.goal}\n\nProduce your initial response. End with a <verdict> trailer."
         else:
             last_peer_turn = self._last_turn_for(
                 "codex" if is_claude else "claude"

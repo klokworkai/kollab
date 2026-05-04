@@ -52,12 +52,6 @@ TURN_PROMPT_TEMPLATE = """\
 Respond per your role. End with a <verdict> trailer.\
 """
 
-TURN_PROMPT_FIRST = """\
-[Round 1] You're up first. Produce your initial response to the goal.
-End with a <verdict> trailer.\
-"""
-
-
 def build_turn_prompt(
     round_num: int,
     peer_name: str,
