@@ -4,11 +4,13 @@
 
 <p align="center"><em>Two Minds | One Code</em></p>
 
-# kollab
+# koll♠b
+
+**ACE · Adversarial Collab Engine**
 
 A transparent, adversarial-collaborative dialogue between Claude Code and OpenAI Codex on a single user-defined goal.
 
-You give kollab a goal. Claude produces. Codex critiques. Claude defends or revises. Repeat until they agree, or until they hit a round limit. Every turn is rendered in a chat-style browser UI so you can see exactly how each model receives criticism, pushes back, concedes, or revises. You can interrupt, inject, or halt at any time.
+You give koll♠b a goal. Claude produces. Codex critiques. Claude defends or revises. Repeat until they agree, or until they hit a round limit. Every turn is rendered in a chat-style browser UI so you can see exactly how each model receives criticism, pushes back, concedes, or revises. You can interrupt, inject directed instructions, or halt at any time.
 
 This is a demo project. The point is the visibility into the inter-model dynamic, not the orchestration itself.
 
@@ -22,7 +24,9 @@ This is a demo project. The point is the visibility into the inter-model dynamic
 - Sends the user's goal to both **in parallel** at session start so each forms its own first-hand understanding
 - Drives a turn-based loop: producer (Claude) → critic (Codex) → producer → critic, with each turn ending in a structured `<verdict>AGREE | DISAGREE | REVISED</verdict>` trailer
 - Renders the full dialogue live in a browser UI with response IDs (`C-1`, `X-2`, …), color-coded turn cards, and collapsible reasoning blocks
-- Logs every event as JSONL on disk for inspection or replay
+- Supports multiple concurrent tabs — each tab is an independent session
+- Maintains a history pane of all completed sessions with one-click readonly replay
+- Logs every event as JSONL on disk
 
 ## What it is not
 
@@ -77,27 +81,35 @@ On first run, the **Configure** modal will appear. Set:
 - Model preferences for each
 - Round limit, working directories
 
-Save, then click **New Session** and type your goal.
+Save, then click **+ New Session** and type your goal.
 
 ---
 
 ## Usage
 
-**Start a session** — click **New Session**, type the goal, hit Start.
+**Start a session** — click **+ New Session**, type your goal, optionally override the round limit or per-session token budget, then hit Start. The goal is sent to both agents in parallel and their first turns stream in live.
 
-**Interrupt** — click **Stop** at any time. The current turn is cancelled cleanly. Click **Resume** to continue from where it stopped.
+**Interrupt** — click **Stop** at any time. The current turn is cancelled cleanly. When halted, select a target agent (`Claude`, `Codex`, or `Claude, Codex`) before the input box enables, then type your instruction and click **Send**. Click **Resume** to continue.
 
-**Inject input mid-session** — type into the input box and click **Send**. Your message is delivered to the next agent's turn.
+**Directed input** — when a session is halted, you must select a target before the input box enables. The target is required — there is no free-form `@agent` syntax. Your message is injected only into the targeted agent's next turn and rendered as `USER → CLAUDE`, `USER → CODEX`, or `USER → CLAUDE, CODEX`.
 
-**Reference a prior turn** — include `C-3` or `X-2` in your message. The orchestrator pins the referenced turn as quoted context for the receiving agent. Example: *"X-2 was wrong about latency — Claude, push back."*
+**Reference a prior turn** — include `C-3` or `X-2` in your message. ACE routes it to the cited agent with the referenced turn as quoted context. Example: *"X-2 was wrong about latency — Claude, push back."*
 
-**Configure** — click the **⚙ Configure** button at any time.
+**Multiple sessions** — open multiple tabs, each running an independent session. Switch between them freely. The input strip always operates on the active tab.
 
-**Logs** — all session events are written as JSONL to `~/.kollab/sessions/<session-id>.jsonl`. Inspect with `jq`, replay externally if you want.
+**History pane** — click **≡** to toggle the history pane. Completed sessions appear there with goal preview, timestamp, and end-reason pill (converged / round limit / halted). Click any row to open a readonly replay tab.
+
+**Readonly replay** — reconstructs all turn cards from the JSONL log. Visually identical to a live session. Input strip is disabled.
+
+**Configure** — click **⚙** at any time.
+
+**Quit** — click **Quit** in the top bar to cleanly shut down the server and close the browser tab.
+
+**Logs** — all session events are written as JSONL to `~/.kollab/sessions/<session-id>.jsonl`. Inspect with `jq`.
 
 ---
 
-## What kollab is for
+## What koll♠b is for
 
 - Watching how two frontier models actually negotiate disagreement
 - Demonstrating that cross-vendor agent collaboration is possible and legible
@@ -133,17 +145,19 @@ sessions_dir = "~/.kollab/sessions"
 port = 8765
 ```
 
+Per-session overrides (round limit, token budget, model) can be set in the New Session modal without touching the config file.
+
 ---
 
 ## Architecture
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│  Browser (chat UI)                                   │
+│  Browser (tabbed chat UI + history pane)             │
 │   ↕ WebSocket                                        │
 │  FastAPI server                                      │
 │   ↕                                                  │
-│  Orchestrator (turn state machine)                   │
+│  ACE — Adversarial Collab Engine (ace.py)            │
 │   ├── Claude agent (Claude Agent SDK, persistent)    │
 │   └── Codex agent (codex CLI subprocess, persistent) │
 └──────────────────────────────────────────────────────┘
@@ -154,13 +168,9 @@ port = 8765
 
 Single Python process. WebSocket for live events. No database — JSONL on disk is sufficient.
 
-Full design: see [`docs/DESIGN.md`](docs/DESIGN.md). Build spec: see [`cc-todo.md`](cc-todo.md). Conventions for working in this repo with Claude Code: see [`CLAUDE.md`](CLAUDE.md).
-
 ---
 
 ## Development
-
-This repo was built with Claude Code as the primary author. Continuity across sessions is tracked in [`docs/SESSION-LOG.md`](docs/SESSION-LOG.md) — read the latest entry before starting a new session.
 
 ```bash
 # install in dev mode
@@ -181,4 +191,4 @@ TBD.
 
 ## Status
 
-Pre-MVP. Tracking against `cc-todo.md`. See `SESSION-LOG.md` for current state.
+v2 in smoke testing. v1 MVP complete.
