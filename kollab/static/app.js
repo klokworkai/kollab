@@ -17,6 +17,7 @@ const userInput     = document.getElementById('user-input');
 const btnSend       = document.getElementById('btn-send');
 const btnStop       = document.getElementById('btn-stop');
 const btnResume     = document.getElementById('btn-resume');
+const inputTarget   = document.getElementById('input-target');
 const tabBar        = document.getElementById('tab-bar');
 const btnNewSession = document.getElementById('btn-new-session');
 const historyPane   = document.getElementById('history-pane');
@@ -152,7 +153,7 @@ function renderTabBar() {
 
     el.appendChild(labelSpan);
     el.appendChild(closeBtn);
-    tabBar.insertBefore(el, btnNewSession);
+    tabBar.appendChild(el);
   }
 }
 
@@ -184,14 +185,35 @@ document.getElementById('btn-confirm-close-yes').addEventListener('click', async
 // ------------------------------------------------------------------ input strip
 
 function updateInputStrip(tab) {
-  const readonly = !tab || tab.state === 'readonly' || tab.state === 'done';
-  userInput.disabled = readonly;
-  btnSend.disabled = readonly;
-  if (readonly) {
+  const isHalted  = tab && tab.state === 'halted';
+  const isReadonly = !tab || tab.state === 'readonly' || tab.state === 'done';
+
+  // dropdown: only enabled when halted
+  inputTarget.disabled = !isHalted;
+  if (!isHalted) {
+    inputTarget.value = '';
+  }
+
+  // input + send: only enabled when halted AND target selected
+  const targetSelected = isHalted && inputTarget.value !== '';
+  userInput.disabled = !targetSelected;
+  btnSend.disabled = !targetSelected;
+  userInput.placeholder = isHalted
+    ? (targetSelected ? 'Type your instruction…' : 'Select a target first…')
+    : 'Session not halted';
+
+  if (isReadonly) {
     btnStop.classList.add('hidden');
     btnResume.classList.add('hidden');
   }
 }
+
+// enable input once target is selected
+inputTarget.addEventListener('change', () => {
+  const tab = activeTab();
+  updateInputStrip(tab);
+  if (inputTarget.value) userInput.focus();
+});
 
 // ------------------------------------------------------------------ append to active tab
 
@@ -208,11 +230,38 @@ function appendToActiveTab(node) {
 let ws = null;
 let stickyBottom = true;
 
+let wsReconnectAttempts = 0;
+
 function connectWS() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws`);
   ws.onmessage = e => handleEvent(JSON.parse(e.data));
-  ws.onclose   = () => setTimeout(connectWS, 2000);
+  ws.onopen = () => onServerOnline();
+  ws.onclose = () => {
+    if (wsReconnectAttempts === 0) onServerGone();
+    wsReconnectAttempts++;
+  };
+}
+
+function onServerOnline() {
+  wsReconnectAttempts = 0;
+  document.getElementById('btn-shutdown').disabled = false;
+  document.getElementById('btn-shutdown').classList.remove('opacity-40');
+}
+
+function onServerGone() {
+  document.getElementById('btn-shutdown').disabled = true;
+  document.getElementById('btn-shutdown').classList.add('opacity-40');
+  document.getElementById('modal-shutdown').classList.add('hidden');
+  const msg = document.getElementById('shutdown-msg');
+  msg.textContent = 'koll♠b has shut down.';
+  const noBtn = document.getElementById('btn-shutdown-no');
+  noBtn.classList.add('hidden');
+  const yesBtn = document.getElementById('btn-shutdown-yes');
+  yesBtn.textContent = 'Close tab';
+  yesBtn.disabled = false;
+  yesBtn.onclick = () => window.close();
+  document.getElementById('modal-shutdown').classList.remove('hidden');
 }
 
 // ------------------------------------------------------------------ event dispatch
@@ -341,6 +390,7 @@ function onState(msg) {
     if (msg.state === 'halted') tab.state = 'halted';
     else if (msg.state === 'done') tab.state = 'done';
     else if (sessionRunning) tab.state = 'active';
+    updateInputStrip(tab);
   }
 }
 
@@ -396,21 +446,67 @@ btnStop.addEventListener('click', async () => {
 });
 
 btnResume.addEventListener('click', () => {
+  // check for unsent instruction
+  if (inputTarget.value && userInput.value.trim()) {
+    showUnsentToast();
+    return;
+  }
+  doResume();
+});
+
+function doResume() {
   fetch('/api/session/resume', { method: 'POST' });
   btnResume.classList.add('hidden');
   const tab = activeTab();
   if (tab) { tab.state = 'active'; updateInputStrip(tab); }
-});
+}
 
-function sendInput() {
+function showUnsentToast() {
+  // remove existing toast if any
+  document.getElementById('unsent-toast')?.remove();
+  const toast = document.createElement('div');
+  toast.id = 'unsent-toast';
+  toast.className = 'fixed bottom-20 left-1/2 -translate-x-1/2 bg-panel border border-white/20 rounded px-4 py-2 text-xs text-muted z-50 flex items-center gap-3';
+  toast.innerHTML = `
+    <span>Instruction not sent.</span>
+    <button id="toast-send-resume" class="text-verdictAgree hover:underline">Send &amp; Resume</button>
+    <button id="toast-resume-anyway" class="text-muted hover:underline">Resume anyway</button>
+  `;
+  document.body.appendChild(toast);
+  toast.querySelector('#toast-send-resume').addEventListener('click', async () => {
+    toast.remove();
+    await sendInput();
+    doResume();
+  });
+  toast.querySelector('#toast-resume-anyway').addEventListener('click', () => {
+    toast.remove();
+    userInput.value = '';
+    doResume();
+  });
+  setTimeout(() => toast?.remove(), 8000);
+}
+
+async function sendInput() {
   const text = userInput.value.trim();
   if (!text) return;
+  const target = inputTarget.value || 'both';
   const ref = text.match(/\b([CX]-\d+)\b/);
   if (ref) highlightCard(ref[1]);
-  fetch('/api/session/input', {
+
+  // render user instruction card
+  const targetLabels = { claude: 'CLAUDE', codex: 'CODEX', both: 'CLAUDE, CODEX' };
+  const card = document.createElement('div');
+  card.className = 'rounded-lg border border-white/10 bg-userPanel p-3 flex flex-col gap-1';
+  card.innerHTML = `
+    <div class="text-xs text-muted uppercase">USER → ${targetLabels[target] || target.toUpperCase()}</div>
+    <pre class="whitespace-pre-wrap text-user">${escHtml(text)}</pre>
+  `;
+  appendToActiveTab(card);
+
+  await fetch('/api/session/input', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, target }),
   });
   userInput.value = '';
 }
@@ -440,6 +536,18 @@ function populateSelect(selectEl, models, currentValue) {
 }
 
 btnNewSession.addEventListener('click', async () => {
+  // block if a session is already active
+  const runningTab = tabs.find(t => t.state === 'active');
+  if (runningTab) {
+    switchTab(runningTab.id);
+    const toast = document.createElement('div');
+    toast.className = 'fixed bottom-20 left-1/2 -translate-x-1/2 bg-panel border border-white/20 rounded px-4 py-2 text-xs text-muted z-50';
+    toast.textContent = 'A session is already running. Stop it or wait for it to finish.';
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+    return;
+  }
+
   // fetch config to pre-fill defaults
   let cfg = {};
   try {
@@ -496,6 +604,15 @@ document.getElementById('btn-modal-start').addEventListener('click', async () =>
   const tab = createTab(goal, null, 'active');
   switchTab(tab.id);
 
+  // render goal card immediately
+  const goalCard = document.createElement('div');
+  goalCard.className = 'rounded-lg border border-white/10 bg-userPanel p-3 flex flex-col gap-1';
+  goalCard.innerHTML = `
+    <div class="text-xs text-muted uppercase">goal</div>
+    <pre class="whitespace-pre-wrap text-user">${escHtml(goal)}</pre>
+  `;
+  appendToActiveTab(goalCard);
+
   waitingMsgEl = document.createElement('p');
   waitingMsgEl.className = 'text-muted text-center mt-16';
   waitingMsgEl.textContent = 'Waiting for Claude to respond…';
@@ -509,10 +626,33 @@ document.getElementById('btn-modal-start').addEventListener('click', async () =>
   if (res.ok) {
     const data = await res.json();
     tab.sessionId = data.session_id;
+  } else if (res.status === 409) {
+    removeWaitingMsg();
+    closeTab(tab.id);
   } else {
     removeWaitingMsg();
     onError({ message: `Failed to start session (${res.status})` });
   }
+});
+
+document.getElementById('btn-shutdown').addEventListener('click', () => {
+  const running = tabs.find(t => t.state === 'active');
+  const msg = document.getElementById('shutdown-msg');
+  msg.textContent = running
+    ? 'A session is in progress. Quit anyway? It will be stopped.'
+    : 'Quit koll\u2660b?';
+  document.getElementById('modal-shutdown').classList.remove('hidden');
+});
+
+document.getElementById('btn-shutdown-no').addEventListener('click', () => {
+  document.getElementById('modal-shutdown').classList.add('hidden');
+});
+
+document.getElementById('btn-shutdown-yes').addEventListener('click', async () => {
+  document.getElementById('btn-shutdown-yes').disabled = true;
+  document.getElementById('btn-shutdown-yes').textContent = 'Quitting…';
+  await fetch('/api/shutdown', { method: 'POST' });
+  document.body.innerHTML = '<p style="color:#888;font-family:monospace;padding:2rem">koll♠b has shut down. You can close this tab.</p>';
 });
 
 // ------------------------------------------------------------------ configure modal
@@ -601,6 +741,7 @@ async function loadHistory() {
   }
 
   historyList.innerHTML = '';
+  historyList.scrollTop = 0;
   if (!sessions.length) {
     historyList.innerHTML = '<p id="history-empty" class="text-muted text-xs px-3 py-4">No sessions yet.</p>';
     return;
@@ -686,7 +827,15 @@ function reconstructSession(tab, events) {
 
   for (const ev of events) {
     const kind = ev.kind;
-    if (kind === 'turn_start') {
+    if (kind === 'session_start') {
+      const goalCard = document.createElement('div');
+      goalCard.className = 'rounded-lg border border-white/10 bg-userPanel p-3 flex flex-col gap-1';
+      goalCard.innerHTML = `
+        <div class="text-xs text-muted uppercase">goal</div>
+        <pre class="whitespace-pre-wrap text-user">${escHtml(ev.payload?.goal || '')}</pre>
+      `;
+      appendToActiveTab(goalCard);
+    } else if (kind === 'turn_start') {
       const card = buildTurnCard({
         turn_id: ev.turn_id,
         actor: ev.actor,
@@ -710,10 +859,12 @@ function reconstructSession(tab, events) {
         }
       }
     } else if (kind === 'user_input') {
+      const targetLabels = { claude: 'CLAUDE', codex: 'CODEX', both: 'CLAUDE, CODEX' };
+      const target = ev.payload?.target || 'both';
       const userCard = document.createElement('div');
       userCard.className = 'rounded-lg border border-white/10 bg-userPanel p-3 flex flex-col gap-1';
       userCard.innerHTML = `
-        <div class="text-xs text-muted uppercase">user</div>
+        <div class="text-xs text-muted uppercase">USER → ${targetLabels[target] || target.toUpperCase()}</div>
         <pre class="whitespace-pre-wrap text-user">${escHtml(ev.payload?.text || '')}</pre>
       `;
       appendToActiveTab(userCard);

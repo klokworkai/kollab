@@ -48,6 +48,10 @@
         class="px-3 py-1 rounded border border-white/20 text-muted hover:text-user hover:border-white/40 transition">
         ⚙ Configure
       </button>
+      <button id="btn-shutdown" disabled
+        class="px-3 py-1 rounded border border-white/20 text-muted hover:text-verdictDisagree hover:border-verdictDisagree/60 transition opacity-40">
+        ⏻ Quit
+      </button>
     </div>
   </header>
 
@@ -70,11 +74,13 @@
     <div class="flex flex-col flex-1 overflow-hidden">
 
       <!-- tab bar -->
-      <div id="tab-bar"
-        class="flex items-center gap-0 bg-panel border-b border-white/10 shrink-0 overflow-x-auto">
-        <!-- tabs inserted here by app.js -->
+      <div id="tab-bar-wrapper" class="flex bg-panel border-b border-white/10 shrink-0">
+        <div id="tab-bar"
+          class="flex items-center gap-0 overflow-x-auto flex-1">
+          <!-- tabs inserted here by app.js -->
+        </div>
         <button id="btn-new-session"
-          class="shrink-0 px-3 py-2 text-muted text-xs hover:text-user border-l border-white/10 whitespace-nowrap">
+          class="shrink-0 px-3 py-2 text-muted text-xs hover:text-user border-l border-white/10 whitespace-nowrap bg-panel">
           + New Session
         </button>
       </div>
@@ -95,11 +101,20 @@
 
       <!-- input bar -->
       <footer class="flex gap-2 px-4 py-2 bg-panel border-t border-white/10 shrink-0">
-        <input id="user-input" type="text" placeholder="Inject a message or reference a turn (e.g. C-3)…"
+        <select id="input-target"
+          class="bg-userPanel border border-white/20 rounded px-2 py-1.5 text-muted text-xs focus:outline-none disabled:opacity-40 shrink-0"
+          disabled>
+          <option value="" disabled selected>— target —</option>
+          <option value="claude">→ Claude</option>
+          <option value="codex">→ Codex</option>
+          <option value="both">→ Claude, Codex</option>
+        </select>
+        <input id="user-input" type="text" placeholder="Select a target first…"
           class="flex-1 bg-userPanel border border-white/20 rounded px-3 py-1.5 text-user
-                 placeholder-muted focus:outline-none focus:border-white/40" />
+                 placeholder-muted focus:outline-none focus:border-white/40 disabled:opacity-40"
+          disabled />
         <button id="btn-send"
-          class="px-3 py-1.5 rounded bg-white/10 hover:bg-white/20 transition">Send</button>
+          class="px-3 py-1.5 rounded bg-white/10 hover:bg-white/20 transition disabled:opacity-40" disabled>Send</button>
         <button id="btn-stop"
           class="px-3 py-1.5 rounded bg-verdictDisagree/80 hover:bg-verdictDisagree transition hidden">Stop</button>
         <button id="btn-resume"
@@ -183,6 +198,20 @@
           class="px-4 py-1.5 rounded border border-white/20 text-muted hover:text-user transition">No</button>
         <button id="btn-confirm-close-yes"
           class="px-4 py-1.5 rounded bg-verdictDisagree/80 text-white hover:bg-verdictDisagree transition">Yes, stop &amp; close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- shutdown modal -->
+  <div id="modal-shutdown"
+    class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50">
+    <div class="bg-panel border border-white/20 rounded-lg p-6 w-full max-w-sm flex flex-col gap-4">
+      <p id="shutdown-msg" class="text-sm">Quit koll&#9824;b?</p>
+      <div class="flex gap-2 justify-end">
+        <button id="btn-shutdown-no"
+          class="px-4 py-1.5 rounded border border-white/20 text-muted hover:text-user transition">No</button>
+        <button id="btn-shutdown-yes"
+          class="px-4 py-1.5 rounded bg-verdictDisagree/80 text-white hover:bg-verdictDisagree transition">Yes, quit</button>
       </div>
     </div>
   </div>

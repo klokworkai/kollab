@@ -81,6 +81,7 @@ class Session:
         self._claude_turn_count: int = 0
         self._codex_turn_count: int = 0
         self._pending_user_input: str = ""
+        self._pending_user_input_target: str = "both"  # 'claude' | 'codex' | 'both'
         self._halt_requested: bool = False
         self._done_reason: str = ""
 
@@ -138,7 +139,13 @@ class Session:
             )
             peer_text = last_peer_turn.text if last_peer_turn else ""
             user_injection = self._pending_user_input
-            self._pending_user_input = ""
+            target = self._pending_user_input_target
+            # only inject if this agent is the target
+            if user_injection and target not in (actor, "both"):
+                user_injection = ""
+            else:
+                self._pending_user_input = ""
+                self._pending_user_input_target = "both"
             prompt = build_turn_prompt(self.round, peer_name, peer_text, user_injection)
 
         if self._max_tokens_per_turn:
@@ -211,10 +218,11 @@ class Session:
                        "round": self.round, "payload": {"reason": self._done_reason}})
             self._broadcast({"type": "session_done", "reason": self._done_reason})
 
-    async def handle_user_input(self, text: str) -> None:
+    async def handle_user_input(self, text: str, target: str = "both") -> None:
         self._log({"kind": "user_input", "actor": "user", "role": "user",
-                   "round": self.round, "payload": {"text": text}})
+                   "round": self.round, "payload": {"text": text, "target": target}})
         self._pending_user_input = text
+        self._pending_user_input_target = target
 
     def stop(self) -> None:
         self.state = "halted"

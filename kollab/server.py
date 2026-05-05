@@ -86,6 +86,7 @@ class StartSessionBody(BaseModel):
 
 class UserInputBody(BaseModel):
     text: str
+    target: str = "both"
 
 
 @app.post("/api/session")
@@ -127,7 +128,7 @@ async def resume_session() -> dict:
 async def session_input(body: UserInputBody) -> dict:
     if _session is None:
         raise HTTPException(status_code=404, detail="No active session.")
-    await _session.handle_user_input(body.text)
+    await _session.handle_user_input(body.text, body.target)
     return {"ok": True}
 
 
@@ -158,7 +159,8 @@ async def _run_session(goal: str) -> None:
     except Exception as exc:
         _broadcast({"type": "error", "message": str(exc)})
     finally:
-        await _session.close()
+        if _session.state != "halted":
+            await _session.close()
 
 
 async def _resume_loop() -> None:
@@ -168,6 +170,21 @@ async def _resume_loop() -> None:
             await _session.run_turn()
     except Exception as exc:
         _broadcast({"type": "error", "message": str(exc)})
+    finally:
+        if _session.state != "halted":
+            await _session.close()
+
+
+@app.post("/api/shutdown")
+async def shutdown() -> dict:
+    import signal
+    import os
+    if _session is not None:
+        if _session.state not in ("done", "halted"):
+            _session.stop()
+        await _session.close()
+    asyncio.get_event_loop().call_later(0.5, lambda: os.kill(os.getpid(), signal.SIGTERM))
+    return {"ok": True}
 
 
 # ------------------------------------------------------------------ session history
