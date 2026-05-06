@@ -6,9 +6,7 @@
 
 # koll♠b
 
-**ACE · Adversarial Collab Engine**
-
-A transparent, adversarial-collaborative dialogue between Claude Code and OpenAI Codex on a single user-defined goal.
+koll♠b is a transparent, adversarial-collaborative dialogue between Claude Code and OpenAI Codex — powered by ACE 🤖, the Adversarial Collab Engine.
 
 You give koll♠b a goal. Claude produces. Codex critiques. Claude defends or revises. Repeat until they agree, or until they hit a round limit. Every turn is rendered in a chat-style browser UI so you can see exactly how each model receives criticism, pushes back, concedes, or revises. You can interrupt, inject directed instructions, or halt at any time.
 
