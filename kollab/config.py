@@ -4,7 +4,6 @@ import os
 import shutil
 import tomllib
 from pathlib import Path
-from typing import Literal
 
 import tomli_w
 from pydantic import BaseModel
@@ -14,7 +13,7 @@ CONFIG_PATH = Path("~/.kollab/config.toml").expanduser()
 
 class Config(BaseModel):
     claude_binary: str = "claude"
-    claude_model: Literal["opus", "sonnet", "haiku"] = "sonnet"
+    claude_model: str = "claude-sonnet-4-6"
     claude_workdir: str = "~/.kollab/workspace/claude"
 
     codex_binary: str = "codex"

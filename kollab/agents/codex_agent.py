@@ -34,7 +34,7 @@ class CodexAgent(Agent):
             yield chunk
 
     async def stop(self) -> None:
-        self._session_id = None
+        pass  # session_id intentionally preserved for halt/resume continuity
 
     async def _run(self, prompt: str, *, new_session: bool) -> AsyncIterator[AgentChunk]:
         cmd = self._build_cmd(prompt, new_session=new_session)

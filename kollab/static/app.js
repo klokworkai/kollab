@@ -521,16 +521,30 @@ function highlightCard(turnId) {
 
 // ------------------------------------------------------------------ new session modal
 
-// Add model options here when names are confirmed — one string per entry.
-const CLAUDE_MODELS = ['opus', 'sonnet', 'haiku'];
-const CODEX_MODELS  = ['gpt-5.4'];
+// Model matrix — single source of truth for all model dropdowns.
+// label: short display name shown in UI
+// model: full model string passed to the CLI
+// tier: fast | gp | high-end
+const MODEL_MATRIX = {
+  claude: [
+    { label: 'haiku',  model: 'claude-haiku-4-5-20251001', tier: 'fast'     },
+    { label: 'sonnet', model: 'claude-sonnet-4-6',          tier: 'gp'       },
+    { label: 'opus',   model: 'claude-opus-4-7',            tier: 'high-end' },
+  ],
+  codex: [
+    { label: 'mini',    model: 'gpt-5.4-mini', tier: 'fast' },
+    { label: 'gpt-5.4', model: 'gpt-5.4',      tier: 'gp'   },
+  ],
+};
 
-function populateSelect(selectEl, models, currentValue) {
+function populateSelect(selectEl, agentKey, currentValue) {
   selectEl.innerHTML = '';
-  for (const m of models) {
+  for (const m of MODEL_MATRIX[agentKey]) {
     const opt = document.createElement('option');
-    opt.value = opt.textContent = m;
-    if (m === currentValue) opt.selected = true;
+    opt.value = m.model;
+    opt.textContent = m.label;
+    opt.title = m.model;  // hover tooltip shows full model string
+    if (m.model === currentValue) opt.selected = true;
     selectEl.appendChild(opt);
   }
 }
@@ -555,8 +569,8 @@ btnNewSession.addEventListener('click', async () => {
     if (res.ok) cfg = await res.json();
   } catch (_) {}
 
-  populateSelect(document.getElementById('override-claude-model'), CLAUDE_MODELS, cfg.claude_model || CLAUDE_MODELS[0]);
-  populateSelect(document.getElementById('override-codex-model'),  CODEX_MODELS,  cfg.codex_model  || CODEX_MODELS[0]);
+  populateSelect(document.getElementById('override-claude-model'), 'claude', cfg.claude_model || MODEL_MATRIX.claude[1].model);
+  populateSelect(document.getElementById('override-codex-model'),  'codex',  cfg.codex_model  || MODEL_MATRIX.codex[1].model);
 
   const roundInput = document.getElementById('override-round-limit');
   roundInput.placeholder = `default (${cfg.round_limit ?? 8})`;
@@ -659,10 +673,10 @@ document.getElementById('btn-shutdown-yes').addEventListener('click', async () =
 
 const configFields = [
   { key: 'claude_binary', label: 'Claude binary path' },
-  { key: 'claude_model',  label: 'Claude model', type: 'select', options: ['opus','sonnet','haiku'] },
+  { key: 'claude_model',  label: 'Claude model', type: 'select', agentKey: 'claude' },
   { key: 'claude_workdir',label: 'Claude working dir' },
   { key: 'codex_binary',  label: 'Codex binary path' },
-  { key: 'codex_model',   label: 'Codex model' },
+  { key: 'codex_model',   label: 'Codex model',  type: 'select', agentKey: 'codex' },
   { key: 'codex_workdir', label: 'Codex working dir' },
   { key: 'round_limit',   label: 'Round limit', type: 'number' },
   { key: 'port',          label: 'Port', type: 'number' },
@@ -682,10 +696,12 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
     if (f.type === 'select') {
       input = document.createElement('select');
       input.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none';
-      for (const opt of f.options) {
+      for (const m of MODEL_MATRIX[f.agentKey]) {
         const o = document.createElement('option');
-        o.value = opt; o.textContent = opt;
-        if (cfg[f.key] === opt) o.selected = true;
+        o.value = m.model;
+        o.textContent = m.label;
+        o.title = m.model;
+        if (cfg[f.key] === m.model) o.selected = true;
         input.appendChild(o);
       }
     } else {
