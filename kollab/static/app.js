@@ -542,8 +542,7 @@ function populateSelect(selectEl, agentKey, currentValue) {
   for (const m of MODEL_MATRIX[agentKey]) {
     const opt = document.createElement('option');
     opt.value = m.model;
-    opt.textContent = m.label;
-    opt.title = m.model;  // hover tooltip shows full model string
+    opt.textContent = `${m.label} (${m.model})`;
     if (m.model === currentValue) opt.selected = true;
     selectEl.appendChild(opt);
   }
@@ -699,8 +698,7 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
       for (const m of MODEL_MATRIX[f.agentKey]) {
         const o = document.createElement('option');
         o.value = m.model;
-        o.textContent = m.label;
-        o.title = m.model;
+        o.textContent = `${m.label} (${m.model})`;
         if (cfg[f.key] === m.model) o.selected = true;
         input.appendChild(o);
       }
