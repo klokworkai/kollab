@@ -1,8 +1,62 @@
-/* custom scrollbar */
-::-webkit-scrollbar { width: 6px; }
+/* ── theme variables ───────────────────────────────────────────── */
+:root {
+  --bg:         #0e0e10;
+  --panel:      #17171a;
+  --user-panel: #202024;
+  --text:       #e5e5e5;
+  --muted:      #888888;
+  --border:     rgba(255,255,255,0.10);
+  --border-20:  rgba(255,255,255,0.20);
+}
+
+[data-theme="light"] {
+  --bg:         #f4f4f6;
+  --panel:      #ffffff;
+  --user-panel: #ebebee;
+  --text:       #1a1a1e;
+  --muted:      #606060;
+  --border:     rgba(0,0,0,0.10);
+  --border-20:  rgba(0,0,0,0.18);
+}
+
+/* surface overrides for light mode */
+[data-theme="light"] body            { background: var(--bg); color: var(--text); }
+[data-theme="light"] header,
+[data-theme="light"] aside,
+[data-theme="light"] #tab-bar-wrapper,
+[data-theme="light"] footer,
+[data-theme="light"] #status-strip   { background: var(--panel) !important; border-color: var(--border) !important; }
+[data-theme="light"] #dialogue       { background: var(--bg); }
+[data-theme="light"] .bg-panel       { background: var(--panel)      !important; }
+[data-theme="light"] .bg-bg          { background: var(--bg)         !important; }
+[data-theme="light"] .bg-userPanel   { background: var(--user-panel) !important; }
+[data-theme="light"] .text-user      { color: var(--text)   !important; }
+[data-theme="light"] .text-muted     { color: var(--muted)  !important; }
+[data-theme="light"] .border-white\/10,
+[data-theme="light"] .border-white\/20 { border-color: var(--border) !important; }
+[data-theme="light"] .bg-claudeTint  { background: #fff3e8 !important; }
+[data-theme="light"] .bg-codexTint   { background: #e8f0fb !important; }
+[data-theme="light"] .kollab-tab     { background: var(--panel); }
+[data-theme="light"] .border-b-claude { border-bottom-color: #cc6600 !important; }
+
+/* custom scrollbar — global */
+::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #555; }
+
+/* tab bar scrollbar — always subtle, horizontal */
+#tab-bar::-webkit-scrollbar { height: 3px; }
+#tab-bar::-webkit-scrollbar-track { background: transparent; }
+#tab-bar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+#tab-bar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.30); }
+
+[data-theme="light"] #tab-bar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); }
+[data-theme="light"] #tab-bar::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.30); }
+
+/* light mode global scrollbar */
+[data-theme="light"] ::-webkit-scrollbar-thumb { background: #ccc; }
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: #aaa; }
 
 /* thinking pulse on turn cards that are still streaming */
 @keyframes thinking-pulse {

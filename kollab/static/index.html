@@ -44,6 +44,9 @@
       </div>
     </div>
     <div class="flex gap-2">
+      <button id="btn-theme-toggle"
+        class="px-3 py-1 rounded border border-white/20 text-muted hover:text-user hover:border-white/40 transition"
+        title="Toggle theme">☀</button>
       <button id="btn-configure"
         class="px-3 py-1 rounded border border-white/20 text-muted hover:text-user hover:border-white/40 transition">
         ⚙ Configure
@@ -62,8 +65,22 @@
     <aside id="history-pane"
       class="bg-panel border-r border-white/10 flex flex-col shrink-0 overflow-hidden transition-all duration-200"
       style="width:240px">
-      <div class="px-3 py-2 text-xs text-muted uppercase tracking-wider border-b border-white/10 shrink-0">
-        History
+      <div class="px-3 py-2 text-xs text-muted uppercase tracking-wider border-b border-white/10 shrink-0 flex items-center justify-between">
+        <span>History</span>
+        <div class="flex items-center gap-2">
+          <div class="flex items-center gap-1" id="history-filters">
+            <button data-filter="convergence" title="Converged"
+              class="history-filter w-3.5 h-3.5 rounded-sm opacity-30 hover:opacity-80 transition"
+              style="background:#4caf50"></button>
+            <button data-filter="round_limit" title="Round limit"
+              class="history-filter w-3.5 h-3.5 rounded-sm opacity-30 hover:opacity-80 transition"
+              style="background:#d4a017"></button>
+            <button data-filter="halted" title="Stopped / Expired"
+              class="history-filter w-3.5 h-3.5 rounded-sm opacity-30 hover:opacity-80 transition"
+              style="background:#cf6679"></button>
+          </div>
+          <span id="history-count" class="opacity-50 tabular-nums normal-case tracking-normal"></span>
+        </div>
       </div>
       <div id="history-list" class="flex-1 overflow-y-auto flex flex-col">
         <p id="history-empty" class="text-muted text-xs px-3 py-4">No sessions yet.</p>
@@ -80,7 +97,8 @@
           <!-- tabs inserted here by app.js -->
         </div>
         <button id="btn-new-session"
-          class="shrink-0 px-3 py-2 text-muted text-xs hover:text-user border-l border-white/10 whitespace-nowrap bg-panel">
+          class="shrink-0 px-3 py-2 text-muted text-xs hover:text-user border-l border-white/10 whitespace-nowrap bg-panel flex items-center gap-1.5">
+          <span id="tab-count" class="text-muted opacity-50 tabular-nums"></span>
           + New Session
         </button>
       </div>
@@ -231,6 +249,20 @@
           class="px-4 py-1.5 rounded bg-codex text-white hover:bg-codex/80 transition">Save</button>
       </div>
       <p id="config-errors" class="text-verdictDisagree text-xs hidden"></p>
+    </div>
+  </div>
+
+  <!-- confirm delete history modal -->
+  <div id="modal-confirm-delete"
+    class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50">
+    <div class="bg-panel border border-white/20 rounded-lg p-6 w-full max-w-sm flex flex-col gap-4">
+      <p class="text-sm">Remove this session from history? The session log will be permanently deleted.</p>
+      <div class="flex gap-2 justify-end">
+        <button id="btn-confirm-delete-no"
+          class="px-4 py-1.5 rounded border border-white/20 text-muted hover:text-user transition">Cancel</button>
+        <button id="btn-confirm-delete-yes"
+          class="px-4 py-1.5 rounded bg-verdictDisagree/80 text-white hover:bg-verdictDisagree transition">Delete</button>
+      </div>
     </div>
   </div>
 

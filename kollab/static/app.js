@@ -23,6 +23,111 @@ const btnNewSession = document.getElementById('btn-new-session');
 const historyPane   = document.getElementById('history-pane');
 const historyList   = document.getElementById('history-list');
 
+// ------------------------------------------------------------------ theme
+
+const THEME_KEY = 'kollab_theme';
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const btn = document.getElementById('btn-theme-toggle');
+  if (btn) btn.textContent = theme === 'light' ? '\uD83C\uDF19' : '\u2600';
+
+  // Force override Tailwind's baked-in colors via inline styles on root elements.
+  // Tailwind CDN injects after our stylesheet so !important in CSS can lose.
+  const isLight = theme === 'light';
+  const styles = isLight ? {
+    bg:        '#f4f4f6',
+    panel:     '#ffffff',
+    userPanel: '#ebebee',
+    text:      '#1a1a1e',
+    muted:     '#606060',
+    border:    'rgba(0,0,0,0.10)',
+    claudeTint:'#fff3e8',
+    codexTint: '#e8f0fb',
+  } : {
+    bg:        '#0e0e10',
+    panel:     '#17171a',
+    userPanel: '#202024',
+    text:      '#e5e5e5',
+    muted:     '#888888',
+    border:    'rgba(255,255,255,0.10)',
+    claudeTint:'#3a2310',
+    codexTint: '#162536',
+  };
+
+  // body background + text
+  document.body.style.backgroundColor = styles.bg;
+  document.body.style.color = styles.text;
+
+  // All elements with Tailwind color classes — re-apply via inline style
+  const overrides = [
+    ['.bg-bg',        'backgroundColor', styles.bg],
+    ['.bg-panel',     'backgroundColor', styles.panel],
+    ['.bg-userPanel', 'backgroundColor', styles.userPanel],
+    ['.bg-claudeTint','backgroundColor', styles.claudeTint],
+    ['.bg-codexTint', 'backgroundColor', styles.codexTint],
+    ['.text-user',    'color',           styles.text],
+    ['.text-muted',   'color',           styles.muted],
+  ];
+  for (const [sel, prop, val] of overrides) {
+    document.querySelectorAll(sel).forEach(el => { el.style[prop] = val; });
+  }
+  // borders
+  document.querySelectorAll('.border-white\/10, .border-white\/20').forEach(el => {
+    el.style.borderColor = styles.border;
+  });
+
+  // store so dynamically created elements can call applyThemeToEl()
+  window.__kollabThemeStyles = styles;
+}
+
+// Apply current theme to a freshly created DOM subtree
+function applyThemeToEl(el) {
+  const styles = window.__kollabThemeStyles;
+  if (!styles) return;
+  const overrides = [
+    ['.bg-bg',        'backgroundColor', styles.bg],
+    ['.bg-panel',     'backgroundColor', styles.panel],
+    ['.bg-userPanel', 'backgroundColor', styles.userPanel],
+    ['.bg-claudeTint','backgroundColor', styles.claudeTint],
+    ['.bg-codexTint', 'backgroundColor', styles.codexTint],
+    ['.text-user',    'color',           styles.text],
+    ['.text-muted',   'color',           styles.muted],
+  ];
+  for (const [sel, prop, val] of overrides) {
+    el.querySelectorAll(sel).forEach(e => { e.style[prop] = val; });
+    if (el.matches && el.matches(sel)) el.style[prop] = val;
+  }
+  el.querySelectorAll('.border-white\/10, .border-white\/20').forEach(e => {
+    e.style.borderColor = styles.border;
+  });
+  if (el.matches && (el.matches('.border-white\/10') || el.matches('.border-white\/20'))) {
+    el.style.borderColor = styles.border;
+  }
+}
+
+document.getElementById('btn-theme-toggle').addEventListener('click', () => {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  const next = current === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  localStorage.setItem(THEME_KEY, next);
+  fetch('/api/config', { method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ theme: next }) });
+});
+
+// init theme from localStorage, then sync from server config on load
+(async () => {
+  const stored = localStorage.getItem(THEME_KEY);
+  if (stored) {
+    applyTheme(stored);
+  } else {
+    try {
+      const r = await fetch('/api/config');
+      if (r.ok) { const c = await r.json(); applyTheme(c.theme || 'dark'); }
+    } catch (_) { applyTheme('dark'); }
+  }
+})();
+
 // ------------------------------------------------------------------ history pane collapse
 
 const HISTORY_KEY = 'kollab_history_collapsed';
@@ -35,12 +140,50 @@ function applyHistoryCollapse(collapsed) {
 document.getElementById('btn-history-toggle').addEventListener('click', () => {
   const collapsed = historyPane.style.width === '0px';
   applyHistoryCollapse(!collapsed);
-  localStorage.setItem(HISTORY_KEY, !collapsed ? 'true' : 'false');
+  localStorage.setItem(HISTORY_KEY, (!collapsed).toString());
 });
 
-applyHistoryCollapse(localStorage.getItem(HISTORY_KEY) === 'true');
+// default: collapsed on first load unless explicitly opened
+const _historySaved = localStorage.getItem(HISTORY_KEY);
+applyHistoryCollapse(_historySaved === null ? true : _historySaved === 'true');
 
-// ------------------------------------------------------------------ tab management
+// ------------------------------------------------------------------ tab persistence
+
+const TABS_KEY = 'kollab_open_tabs';
+
+function saveOpenTabs() {
+  // only persist readonly/done/halted tabs — active tabs can't survive a refresh
+  const persistable = tabs
+    .filter(t => t.sessionId && t.state !== 'active')
+    .map(t => ({ sessionId: t.sessionId, goal: t.goal, state: t.state }));
+  localStorage.setItem(TABS_KEY, JSON.stringify(persistable));
+}
+
+async function restoreOpenTabs() {
+  let saved;
+  try { saved = JSON.parse(localStorage.getItem(TABS_KEY) || '[]'); } catch (_) { return; }
+  if (!saved.length) return;
+  for (const entry of saved) {
+    try {
+      const res = await fetch(`/api/sessions/${entry.sessionId}`);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const tab = createTab(entry.goal || entry.sessionId, entry.sessionId, 'readonly');
+      // reconstruct without switching to it
+      const prevActiveId = activeTabId;
+      activeTabId = tab.id;  // temporarily so appendToActiveTab works
+      stickyBottom = false;
+      reconstructSession(tab, data.events);
+      tab.scrollTop = 0;
+      activeTabId = prevActiveId;
+    } catch (_) { /* skip broken entries */ }
+  }
+  // restore the last active tab if there is one
+  if (tabs.length > 0 && !activeTabId) {
+    switchTab(tabs[tabs.length - 1].id);
+  }
+  renderTabBar();
+}
 
 function makeTabId() {
   return 'tab_' + Math.random().toString(36).slice(2, 10);
@@ -80,6 +223,7 @@ function closeTab(tabId) {
     else showEmptyState();
   }
   renderTabBar();
+  saveOpenTabs();
 }
 
 function switchTab(tabId) {
@@ -113,6 +257,7 @@ function showEmptyState() {
   p.className = 'text-muted text-center mt-16';
   p.textContent = 'Start a new session to begin the dialogue.';
   dialogue.appendChild(p);
+  statusStrip.textContent = 'idle';
   updateInputStrip(null);
   renderTabBar();
 }
@@ -128,6 +273,9 @@ function renderTabBar() {
   const oldTabs = tabBar.querySelectorAll('.kollab-tab');
   oldTabs.forEach(el => el.remove());
 
+  // update tab counter
+  const countEl = document.getElementById('tab-count');
+  if (countEl) countEl.textContent = tabs.length > 0 ? `${tabs.length}` : '';
   for (const tab of tabs) {
     const label = (tab.state === 'readonly' ? '[readonly] ' : '')
       + (tab.goal ? tab.goal.slice(0, 40) + (tab.goal.length > 40 ? '…' : '') : 'New session');
@@ -220,6 +368,7 @@ inputTarget.addEventListener('change', () => {
 function appendToActiveTab(node) {
   const tab = activeTab();
   if (!tab) return;
+  applyThemeToEl(node);
   tab._nodes.push(node);
   dialogue.appendChild(node);
   scrollIfSticky();
@@ -355,6 +504,14 @@ function onTurnChunk(msg) {
 
 function onTurnEnd(msg) {
   applyVerdict(msg.turn_id, msg.verdict);
+  if (msg.thread_id) {
+    const badge = document.getElementById(`badge-${msg.turn_id}`);
+    if (badge) {
+      const short = msg.thread_id.length > 14 ? msg.thread_id.slice(0, 14) + '…' : msg.thread_id;
+      badge.textContent = `${msg.turn_id} · ${short}`;
+      badge.title = msg.thread_id;
+    }
+  }
   const body = document.getElementById(`body-${msg.turn_id}`);
   if (body) body.classList.remove('thinking');
   isStreaming = false;
@@ -400,6 +557,7 @@ function onSessionDone(msg) {
     round_limit: '⚠ Round limit reached.',
     token_limit: '⚠ Token budget exhausted.',
     halted:      '⏹ Session halted.',
+    expired:     '⏳ Stopped / expired.',
   };
   const banner = document.createElement('div');
   banner.className = 'rounded-lg border border-white/20 bg-userPanel px-4 py-3 text-center text-muted';
@@ -414,6 +572,7 @@ function onSessionDone(msg) {
   updateInputStrip(tab);
   renderTabBar();
   scrollIfSticky();
+  saveOpenTabs();
 
   // refresh history pane
   loadHistory();
@@ -678,8 +837,14 @@ const configFields = [
   { key: 'codex_model',   label: 'Codex model',  type: 'select', agentKey: 'codex' },
   { key: 'codex_workdir', label: 'Codex working dir' },
   { key: 'round_limit',   label: 'Round limit', type: 'number' },
+  { key: 'halt_timeout_secs', label: 'Halt timeout (seconds, 0 = never)', type: 'number' },
   { key: 'port',          label: 'Port', type: 'number' },
   { key: 'sessions_dir',  label: 'Sessions dir' },
+  { key: '_mcp_sep',      label: 'MCP Tools', type: 'section' },
+  { key: 'mcp_filesystem_enabled', label: 'Filesystem MCP enabled', type: 'checkbox' },
+  { key: 'mcp_filesystem_paths',   label: 'Filesystem allowed paths (one per line)', type: 'textarea' },
+  { key: 'mcp_github_enabled',     label: 'GitHub MCP enabled',     type: 'checkbox' },
+  { key: 'mcp_github_token',       label: 'GitHub token',           type: 'password' },
 ];
 
 document.getElementById('btn-configure').addEventListener('click', async () => {
@@ -688,6 +853,13 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
   const form = document.getElementById('config-form');
   form.innerHTML = '';
   for (const f of configFields) {
+    if (f.type === 'section') {
+      const sep = document.createElement('div');
+      sep.className = 'border-t border-white/10 pt-3 mt-1';
+      sep.innerHTML = `<p class="text-xs text-muted uppercase tracking-wider">${f.label}</p>`;
+      form.appendChild(sep);
+      continue;
+    }
     const label = document.createElement('label');
     label.className = 'flex flex-col gap-1 text-xs text-muted';
     label.textContent = f.label;
@@ -702,6 +874,30 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
         if (cfg[f.key] === m.model) o.selected = true;
         input.appendChild(o);
       }
+    } else if (f.type === 'checkbox') {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'flex items-center gap-2 mt-1';
+      input = document.createElement('input');
+      input.type = 'checkbox';
+      input.className = 'w-4 h-4 accent-claude';
+      input.checked = !!cfg[f.key];
+      wrapper.appendChild(input);
+      input.name = f.key;
+      label.appendChild(wrapper);
+      form.appendChild(label);
+      continue;
+    } else if (f.type === 'textarea') {
+      input = document.createElement('textarea');
+      input.rows = 3;
+      input.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none font-mono text-xs';
+      input.value = Array.isArray(cfg[f.key]) ? cfg[f.key].join('\n') : (cfg[f.key] || '');
+      input.placeholder = 'Leave empty to use agent workdir';
+    } else if (f.type === 'password') {
+      input = document.createElement('input');
+      input.type = 'password';
+      input.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none';
+      input.value = cfg[f.key] ?? '';
+      input.placeholder = 'GitHub personal access token';
     } else {
       input = document.createElement('input');
       input.type = f.type || 'text';
@@ -723,7 +919,16 @@ document.getElementById('btn-config-save').addEventListener('click', async () =>
   const form = document.getElementById('config-form');
   const data = {};
   for (const el of form.elements) {
-    if (el.name) data[el.name] = el.type === 'number' ? Number(el.value) : el.value;
+    if (!el.name) continue;
+    if (el.type === 'checkbox') {
+      data[el.name] = el.checked;
+    } else if (el.tagName === 'TEXTAREA' && el.name === 'mcp_filesystem_paths') {
+      data[el.name] = el.value.split('\n').map(s => s.trim()).filter(Boolean);
+    } else if (el.type === 'number') {
+      data[el.name] = Number(el.value);
+    } else {
+      data[el.name] = el.value;
+    }
   }
   const res = await fetch('/api/config', {
     method: 'POST',
@@ -743,6 +948,100 @@ document.getElementById('btn-config-save').addEventListener('click', async () =>
 
 // ------------------------------------------------------------------ history pane
 
+let _historyFilter = null;  // null = show all, or 'convergence' | 'round_limit' | 'halted'
+let _pendingDeleteId = null;
+let _allSessions = [];
+
+// wire filter buttons
+document.querySelectorAll('.history-filter').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const f = btn.dataset.filter;
+    _historyFilter = _historyFilter === f ? null : f;
+    document.querySelectorAll('.history-filter').forEach(b => {
+      const active = b.dataset.filter === _historyFilter;
+      b.style.opacity = active ? '1' : '0.30';
+      b.style.outline = active ? '1.5px solid rgba(255,255,255,0.4)' : 'none';
+    });
+    renderHistoryList(_allSessions);
+  });
+});
+
+// wire delete confirm modal
+document.getElementById('btn-confirm-delete-no').addEventListener('click', () => {
+  _pendingDeleteId = null;
+  document.getElementById('modal-confirm-delete').classList.add('hidden');
+});
+
+document.getElementById('btn-confirm-delete-yes').addEventListener('click', async () => {
+  document.getElementById('modal-confirm-delete').classList.add('hidden');
+  if (!_pendingDeleteId) return;
+  const sid = _pendingDeleteId;
+  _pendingDeleteId = null;
+  await fetch(`/api/sessions/${sid}`, { method: 'DELETE' });
+  const openTab = getTabBySessionId(sid);
+  if (openTab) closeTab(openTab.id);
+  _allSessions = _allSessions.filter(s => s.session_id !== sid);
+  renderHistoryList(_allSessions);
+  const hCount = document.getElementById('history-count');
+  if (hCount) hCount.textContent = _allSessions.length > 0 ? `${_allSessions.length}` : '';
+});
+
+function renderHistoryList(sessions) {
+  const filtered = _historyFilter
+    ? sessions.filter(s => s.end_reason === _historyFilter ||
+        (_historyFilter === 'halted' && s.end_reason === 'expired'))
+    : sessions;
+
+  historyList.innerHTML = '';
+  if (!filtered.length) {
+    const msg = _historyFilter ? 'No matching sessions.' : 'No sessions yet.';
+    historyList.innerHTML = `<p class="text-muted text-xs px-3 py-4">${msg}</p>`;
+    return;
+  }
+
+  const pillStyles = { convergence: 'text-verdictAgree', round_limit: 'text-verdictRevised', halted: 'text-muted', expired: 'text-muted' };
+  const pillLabels = { convergence: '\u2713 converged', round_limit: '\u26a0 round limit', halted: '\u23f9 halted', expired: '\u23f3 expired' };
+
+  for (const s of filtered) {
+    const row = document.createElement('div');
+    row.className = 'relative group text-left w-full px-3 py-2 border-b border-white/5 hover:bg-white/5 transition flex flex-col gap-0.5 cursor-pointer';
+    row.dataset.sessionId = s.session_id;
+
+    const goalEl = document.createElement('span');
+    goalEl.className = 'text-xs text-user truncate pr-5';
+    goalEl.textContent = (s.goal || '').slice(0, 40) + ((s.goal || '').length > 40 ? '\u2026' : '');
+
+    const metaEl = document.createElement('span');
+    metaEl.className = 'text-xs text-muted flex items-center gap-1';
+    const tsEl = document.createElement('span');
+    tsEl.textContent = s.started_at ? relativeTime(s.started_at) : '';
+    metaEl.appendChild(tsEl);
+    if (s.end_reason) {
+      const pillEl = document.createElement('span');
+      pillEl.className = `text-xs ${pillStyles[s.end_reason] || 'text-muted'}`;
+      pillEl.textContent = pillLabels[s.end_reason] || s.end_reason;
+      metaEl.appendChild(document.createTextNode(' \u00b7 '));
+      metaEl.appendChild(pillEl);
+    }
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-40 hover:!opacity-100 transition text-muted hover:text-verdictDisagree text-sm leading-none px-1';
+    delBtn.textContent = '\u00d7';
+    delBtn.title = 'Remove from history';
+    delBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      _pendingDeleteId = s.session_id;
+      document.getElementById('modal-confirm-delete').classList.remove('hidden');
+    });
+
+    row.appendChild(goalEl);
+    row.appendChild(metaEl);
+    row.appendChild(delBtn);
+    row.addEventListener('click', () => openHistorySession(s.session_id, s.goal));
+    historyList.appendChild(row);
+  }
+}
+
 async function loadHistory() {
   let sessions;
   try {
@@ -754,50 +1053,13 @@ async function loadHistory() {
     return;
   }
 
-  historyList.innerHTML = '';
+  _allSessions = sessions;
   historyList.scrollTop = 0;
-  if (!sessions.length) {
-    historyList.innerHTML = '<p id="history-empty" class="text-muted text-xs px-3 py-4">No sessions yet.</p>';
-    return;
-  }
 
-  for (const s of sessions) {
-    const row = document.createElement('button');
-    row.className = 'text-left w-full px-3 py-2 border-b border-white/5 hover:bg-white/5 transition flex flex-col gap-0.5';
-    row.dataset.sessionId = s.session_id;
+  const hCount = document.getElementById('history-count');
+  if (hCount) hCount.textContent = sessions.length > 0 ? `${sessions.length}` : '';
 
-    const goalEl = document.createElement('span');
-    goalEl.className = 'text-xs text-user truncate';
-    goalEl.textContent = (s.goal || '').slice(0, 40) + ((s.goal || '').length > 40 ? '…' : '');
-
-    const metaEl = document.createElement('span');
-    metaEl.className = 'text-xs text-muted flex items-center gap-1';
-
-    const tsEl = document.createElement('span');
-    tsEl.textContent = s.started_at ? relativeTime(s.started_at) : '';
-
-    const pillEl = document.createElement('span');
-    const pillStyles = {
-      convergence: 'text-verdictAgree',
-      round_limit: 'text-verdictRevised',
-      halted:      'text-muted',
-    };
-    const pillLabels = {
-      convergence: '✓ converged',
-      round_limit: '⚠ round limit',
-      halted:      '⏹ halted',
-    };
-    pillEl.className = `text-xs ${pillStyles[s.end_reason] || 'text-muted'}`;
-    pillEl.textContent = pillLabels[s.end_reason] || (s.end_reason || '');
-
-    metaEl.appendChild(tsEl);
-    if (s.end_reason) { metaEl.appendChild(document.createTextNode(' · ')); metaEl.appendChild(pillEl); }
-
-    row.appendChild(goalEl);
-    row.appendChild(metaEl);
-    row.addEventListener('click', () => openHistorySession(s.session_id, s.goal));
-    historyList.appendChild(row);
-  }
+  renderHistoryList(sessions);
 }
 
 function relativeTime(isoStr) {
@@ -826,8 +1088,12 @@ async function openHistorySession(sessionId, goal) {
 
   const tab = createTab(goal || sessionId, sessionId, 'readonly');
   switchTab(tab.id);
+  stickyBottom = false;
   reconstructSession(tab, data.events);
+  dialogue.scrollTop = 0;
+  tab.scrollTop = 0;
   updateInputStrip(tab);
+  saveOpenTabs();
 }
 
 // ------------------------------------------------------------------ readonly reconstruction
@@ -864,6 +1130,15 @@ function reconstructSession(tab, events) {
         body.textContent = ev.payload?.text || '';
       }
       applyVerdict(ev.turn_id, ev.payload?.verdict);
+      const threadId = ev.payload?.thread_id || ev.thread_id || '';
+      if (threadId) {
+        const badge = document.getElementById(`badge-${ev.turn_id}`);
+        if (badge) {
+          const short = threadId.length > 14 ? threadId.slice(0, 14) + '\u2026' : threadId;
+          badge.textContent = `${ev.turn_id} \u00b7 ${short}`;
+          badge.title = threadId;
+        }
+      }
       if (ev.payload?.reasoning) {
         const details = document.getElementById(`reasoning-${ev.turn_id}`);
         const pre = document.getElementById(`reasoning-body-${ev.turn_id}`);
@@ -917,3 +1192,4 @@ function scrollIfSticky() {
 
 connectWS();
 loadHistory();
+restoreOpenTabs();
