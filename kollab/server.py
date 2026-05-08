@@ -215,6 +215,16 @@ async def list_sessions() -> list[dict]:
     return results
 
 
+@app.delete("/api/sessions/{session_id}")
+async def delete_session(session_id: str) -> dict:
+    sessions_dir = Path(_cfg.sessions_dir)
+    path = sessions_dir / f"{session_id}.jsonl"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Session not found.")
+    path.unlink()
+    return {"ok": True}
+
+
 @app.get("/api/sessions/{session_id}")
 async def get_session(session_id: str) -> dict:
     sessions_dir = Path(_cfg.sessions_dir)

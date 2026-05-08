@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -9,6 +11,14 @@ import tomli_w
 from pydantic import BaseModel
 
 CONFIG_PATH = Path("~/.kollab/config.toml").expanduser()
+
+MCP_PACKAGES = {
+    "mcp_filesystem": "@modelcontextprotocol/server-filesystem",
+    "mcp_github":     "@modelcontextprotocol/server-github",
+}
+
+# Resolved install dir — all MCP packages go here
+_MCP_DIR = Path("~/.kollab/mcp").expanduser()
 
 
 class Config(BaseModel):
@@ -26,9 +36,62 @@ class Config(BaseModel):
     port: int = 8765
     sessions_dir: str = "~/.kollab/sessions"
 
+    # MCP tool toggles
+    mcp_filesystem_enabled: bool = True
+    mcp_filesystem_paths: list[str] = []
+    mcp_github_enabled: bool = True
+    mcp_github_token: str = ""
+
+    # UI theme
+    theme: str = "dark"  # 'dark' | 'light'
+
+    # Halt timeout: auto-expire halted sessions after this many seconds (0 = never)
+    halt_timeout_secs: int = 1800
+
 
 def _expand(value: str) -> str:
     return os.path.expanduser(value)
+
+
+def mcp_server_path(package_key: str) -> Path:
+    """Return the local node binary path for an MCP package key."""
+    # @modelcontextprotocol/server-filesystem -> mcp-server-filesystem
+    pkg_name = MCP_PACKAGES[package_key]
+    bin_name = "mcp-" + pkg_name.split("/")[-1]  # mcp-server-filesystem / mcp-server-github
+    return _MCP_DIR / "node_modules" / ".bin" / bin_name
+
+
+def ensure_mcp_packages() -> None:
+    """Install missing MCP npm packages into ~/.kollab/mcp on first run."""
+    npm = shutil.which("npm")
+    if not npm:
+        print("[kollab] WARNING: npm not found — MCP tools will not be available.",
+              file=sys.stderr)
+        return
+
+    _MCP_DIR.mkdir(parents=True, exist_ok=True)
+    to_install: list[str] = []
+
+    for key, pkg in MCP_PACKAGES.items():
+        bin_path = mcp_server_path(key)
+        if not bin_path.exists():
+            to_install.append(pkg)
+
+    if not to_install:
+        return
+
+    print(f"[kollab] Installing MCP packages: {', '.join(to_install)} …",
+          file=sys.stderr, flush=True)
+    result = subprocess.run(
+        [npm, "install", "--prefix", str(_MCP_DIR),
+         "--save", "--no-fund", "--loglevel=error"] + to_install,
+        capture_output=False,
+    )
+    if result.returncode != 0:
+        print("[kollab] WARNING: npm install failed — MCP tools may not work.",
+              file=sys.stderr)
+    else:
+        print("[kollab] MCP packages ready.", file=sys.stderr, flush=True)
 
 
 def load_config() -> Config:

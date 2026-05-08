@@ -13,11 +13,19 @@ _UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 class CodexAgent(Agent):
     name = "codex"
 
-    def __init__(self, role: str, binary: str, model: str, workdir: str) -> None:
+    def __init__(self, role: str, binary: str, model: str, workdir: str,
+                 mcp_filesystem_enabled: bool = False,
+                 mcp_filesystem_paths: list[str] | None = None,
+                 mcp_github_enabled: bool = False,
+                 mcp_github_token: str = "") -> None:
         self.role = role
         self._binary = binary
         self._model = model
         self._workdir = workdir
+        self._mcp_filesystem_enabled = mcp_filesystem_enabled
+        self._mcp_filesystem_paths = mcp_filesystem_paths or []
+        self._mcp_github_enabled = mcp_github_enabled
+        self._mcp_github_token = mcp_github_token
         self._session_id: str | None = None
         self._system_prompt: str = ""
         self._started: bool = False
@@ -38,12 +46,18 @@ class CodexAgent(Agent):
 
     async def _run(self, prompt: str, *, new_session: bool) -> AsyncIterator[AgentChunk]:
         cmd = self._build_cmd(prompt, new_session=new_session)
+        import os as _os
+        env = None
+        if self._mcp_github_enabled and self._mcp_github_token:
+            env = {**_os.environ, "GITHUB_TOKEN": self._mcp_github_token}
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=env,
         )
         assert proc.stdout is not None
+        assert proc.stderr is not None
 
         text_buf: list[str] = []
         tokens_in = 0

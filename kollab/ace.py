@@ -70,12 +70,20 @@ class Session:
             binary=cfg.claude_binary,
             model=ov.claude_model or cfg.claude_model,
             workdir=Path(cfg.claude_workdir).expanduser().__str__(),
+            mcp_filesystem_enabled=cfg.mcp_filesystem_enabled,
+            mcp_filesystem_paths=[Path(p).expanduser().__str__() for p in cfg.mcp_filesystem_paths],
+            mcp_github_enabled=cfg.mcp_github_enabled,
+            mcp_github_token=cfg.mcp_github_token,
         )
         self._codex = CodexAgent(
             role="critic",
             binary=cfg.codex_binary,
             model=ov.codex_model or cfg.codex_model,
             workdir=Path(cfg.codex_workdir).expanduser().__str__(),
+            mcp_filesystem_enabled=cfg.mcp_filesystem_enabled,
+            mcp_filesystem_paths=[Path(p).expanduser().__str__() for p in cfg.mcp_filesystem_paths],
+            mcp_github_enabled=cfg.mcp_github_enabled,
+            mcp_github_token=cfg.mcp_github_token,
         )
         self._transcript: TranscriptLog | None = None
         self._claude_turn_count: int = 0
@@ -84,6 +92,8 @@ class Session:
         self._pending_user_input_target: str = "both"  # 'claude' | 'codex' | 'both'
         self._halt_requested: bool = False
         self._done_reason: str = ""
+        self._halt_timeout_secs: int = cfg.halt_timeout_secs
+        self._halt_timer_task: asyncio.Task | None = None
 
     # ------------------------------------------------------------------ lifecycle
 
@@ -155,6 +165,7 @@ class Session:
         self._halt_requested = False
         turn_tokens_in = 0
         turn_tokens_out = 0
+        turn_thread_id = ""
         async for chunk in agent.send(prompt):
             if self._halt_requested:
                 break
@@ -170,10 +181,21 @@ class Session:
                 meta = chunk.metadata or {}
                 turn_tokens_in = meta.get("tokens_in") or 0
                 turn_tokens_out = meta.get("tokens_out") or 0
+                if actor == "claude":
+                    turn_thread_id = meta.get("session_id") or self._claude._session_id or ""
+                else:
+                    turn_thread_id = self._codex._session_id or ""
                 self._broadcast({"type": "turn_chunk", "turn_id": turn_id,
                                  "kind": "done", "content": ""})
 
         self._session_tokens += turn_tokens_in + turn_tokens_out
+
+        # capture thread IDs after stream ends (agent._session_id is set by done chunk)
+        if not turn_thread_id:
+            if actor == "claude":
+                turn_thread_id = self._claude._session_id or ""
+            else:
+                turn_thread_id = self._codex._session_id or ""
 
         turn.ended_at = datetime.now(timezone.utc)
         turn.verdict = _parse_verdict(turn.text)
@@ -184,9 +206,11 @@ class Session:
         self._log({"kind": "turn_end", "turn_id": turn_id, "actor": actor,
                    "role": role, "round": self.round,
                    "payload": {"text": turn.text, "reasoning": turn.reasoning,
-                                "verdict": turn.verdict, "duration_ms": duration_ms}})
+                                "verdict": turn.verdict, "duration_ms": duration_ms,
+                                "thread_id": turn_thread_id}})
         self._broadcast({"type": "turn_end", "turn_id": turn_id,
-                         "verdict": turn.verdict, "duration_ms": duration_ms})
+                         "verdict": turn.verdict, "duration_ms": duration_ms,
+                         "thread_id": turn_thread_id})
 
         if self.state == "halted":
             self._broadcast({"type": "state", "state": "halted",
@@ -227,10 +251,39 @@ class Session:
     def stop(self) -> None:
         self.state = "halted"
         self._halt_requested = True
+        # cancel any existing timer first
+        if self._halt_timer_task and not self._halt_timer_task.done():
+            self._halt_timer_task.cancel()
+        # schedule auto-expiry if timeout is configured
+        if self._halt_timeout_secs > 0:
+            self._halt_timer_task = asyncio.create_task(
+                self._halt_timeout_task(self._halt_timeout_secs)
+            )
+
+    async def _halt_timeout_task(self, seconds: int) -> None:
+        """Auto-expire the session if still halted after `seconds`."""
+        try:
+            await asyncio.sleep(seconds)
+        except asyncio.CancelledError:
+            return
+        if self.state != "halted":
+            return
+        self._done_reason = "expired"
+        self.state = "done"
+        self._log({"kind": "session_end", "actor": "system", "role": "system",
+                   "round": self.round,
+                   "payload": {"reason": "expired",
+                               "detail": f"Session auto-expired after {seconds}s halt"}})
+        self._broadcast({"type": "session_done", "reason": "expired"})
+        await self.close()
 
     async def resume(self) -> None:
         if self.state != "halted":
             return
+        # cancel halt timer
+        if self._halt_timer_task and not self._halt_timer_task.done():
+            self._halt_timer_task.cancel()
+            self._halt_timer_task = None
         # determine whose turn it was when halted — re-run it
         if self.turns and self.turns[-1].actor == "claude":
             self.state = "codex_turn"
@@ -240,6 +293,8 @@ class Session:
                          "round": self.round, "consecutive_agrees": self.consecutive_agrees})
 
     async def close(self) -> None:
+        if self._halt_timer_task and not self._halt_timer_task.done():
+            self._halt_timer_task.cancel()
         await asyncio.gather(
             self._claude.stop(),
             self._codex.stop(),

@@ -5,7 +5,7 @@ import webbrowser
 
 import uvicorn
 
-from .config import load_config, validate_config
+from .config import ensure_mcp_packages, load_config, validate_config
 
 
 def main() -> None:
@@ -16,6 +16,8 @@ def main() -> None:
         for e in errors:
             print(f"  - {e}")
         print("Launching anyway — fix in the Configure modal.")
+
+    ensure_mcp_packages()
 
     threading.Timer(1.5, lambda: webbrowser.open(f"http://localhost:{cfg.port}")).start()
     uvicorn.run("kollab.server:app", host="127.0.0.1", port=cfg.port, log_level="info")
