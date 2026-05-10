@@ -146,7 +146,10 @@
   <div id="modal-new-session"
     class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50">
     <div class="bg-panel border border-white/20 rounded-lg p-6 w-full max-w-xl flex flex-col gap-4 overflow-y-auto max-h-[90vh]">
-      <h2 class="text-base font-bold">New Session</h2>
+      <div class="flex items-baseline justify-between">
+        <h2 class="text-base font-bold">New Session</h2>
+        <span class="text-xs text-muted opacity-40">Esc to cancel</span>
+      </div>
 
       <textarea id="goal-input" rows="4"
         placeholder="Describe the goal for Claude and Codex to collaborate on…"
@@ -224,7 +227,10 @@
   <div id="modal-shutdown"
     class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50">
     <div class="bg-panel border border-white/20 rounded-lg p-6 w-full max-w-sm flex flex-col gap-4">
-      <p id="shutdown-msg" class="text-sm">Quit koll&#9824;b?</p>
+      <div class="flex items-baseline justify-between">
+        <p id="shutdown-msg" class="text-sm">Quit koll&#9824;b?</p>
+        <span class="text-xs text-muted opacity-40">Esc to cancel</span>
+      </div>
       <div class="flex gap-2 justify-end">
         <button id="btn-shutdown-no"
           class="px-4 py-1.5 rounded border border-white/20 text-muted hover:text-user transition">No</button>
@@ -238,7 +244,10 @@
   <div id="modal-configure"
     class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50">
     <div class="bg-panel border border-white/20 rounded-lg p-6 w-full max-w-lg flex flex-col gap-4 overflow-y-auto max-h-[90vh]">
-      <h2 class="text-base font-bold">Configure</h2>
+      <div class="flex items-baseline justify-between">
+        <h2 class="text-base font-bold">Configure</h2>
+        <span class="text-xs text-muted opacity-40">Esc to cancel</span>
+      </div>
       <form id="config-form" class="flex flex-col gap-3">
         <!-- fields injected by app.js -->
       </form>

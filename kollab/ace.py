@@ -12,7 +12,10 @@ from .agents.base import AgentChunk
 from .agents.claude_agent import ClaudeAgent
 from .agents.codex_agent import CodexAgent
 from .config import Config
-from .prompts import SYSTEM_CRITIC, SYSTEM_PRODUCER, build_turn_prompt
+from .prompts import (
+    SYSTEM_CRITIC, SYSTEM_PRODUCER,
+    build_first_turn_prompt, build_turn_prompt,
+)
 from .transcript import TranscriptLog
 
 _VERDICT_RE = re.compile(r"<verdict>\s*(AGREE|DISAGREE|REVISED)\s*</verdict>", re.I)
@@ -45,6 +48,7 @@ class Turn:
     text: str = ""
     reasoning: str = ""
     verdict: Verdict | None = None
+    interrupted: bool = False
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     ended_at: datetime | None = None
 
@@ -88,12 +92,22 @@ class Session:
         self._transcript: TranscriptLog | None = None
         self._claude_turn_count: int = 0
         self._codex_turn_count: int = 0
+        # Completed (non-interrupted) turn counts — drive round numbering.
+        self._claude_completed: int = 0
+        self._codex_completed: int = 0
         self._pending_user_input: str = ""
         self._pending_user_input_target: str = "both"  # 'claude' | 'codex' | 'both'
         self._halt_requested: bool = False
         self._done_reason: str = ""
         self._halt_timeout_secs: int = cfg.halt_timeout_secs
         self._halt_timer_task: asyncio.Task | None = None
+        # Mid-turn halt tracking. After a mid-stream halt, _interrupted_agent
+        # is the actor that was running. resume() reads this to know which
+        # agent should run next (the same one that was interrupted) and sets
+        # _resume_after_halt so the next prompt build prepends a notice telling
+        # the agent to disregard its previous in-flight response.
+        self._interrupted_agent: str | None = None
+        self._resume_after_halt: bool = False
 
     # ------------------------------------------------------------------ lifecycle
 
@@ -131,7 +145,10 @@ class Session:
             self._codex_turn_count += 1
             turn_id = f"X-{self._codex_turn_count}"
 
-        self.round = (self._claude_turn_count + self._codex_turn_count + 1) // 2
+        # Round = ceil((completed_claude + completed_codex + 1) / 2). The
+        # +1 accounts for *this* turn-in-progress; interrupted turns never
+        # increment the completed counters so they don't inflate the round.
+        self.round = (self._claude_completed + self._codex_completed + 1 + 1) // 2
 
         turn = Turn(id=turn_id, actor=actor, role=role, round=self.round)
         self.turns.append(turn)
@@ -140,35 +157,72 @@ class Session:
         self._broadcast({"type": "turn_start", "turn_id": turn_id,
                          "actor": actor, "role": role, "round": self.round})
 
-        # build prompt
-        if len(self.turns) == 1:
-            prompt = f"[Round 1] {self.goal}\n\nProduce your initial response. End with a <verdict> trailer."
-        else:
-            last_peer_turn = self._last_turn_for(
-                "codex" if is_claude else "claude"
-            )
-            peer_text = last_peer_turn.text if last_peer_turn else ""
-            user_injection = self._pending_user_input
+        # ------ build prompt ------
+        # Determine and consume any pending user directive that targets this
+        # actor. Same-as-before semantics: if target is 'both', the first
+        # consuming agent flips it to the peer so both see it once.
+        user_injection = self._pending_user_input
+        if user_injection:
             target = self._pending_user_input_target
-            # only inject if this agent is the target
-            if user_injection and target not in (actor, "both"):
-                user_injection = ""
+            if target not in (actor, "both"):
+                user_injection = ""  # not for this agent — leave pending
             else:
-                self._pending_user_input = ""
-                self._pending_user_input_target = "both"
-            prompt = build_turn_prompt(self.round, peer_name, peer_text, user_injection)
+                if target == "both":
+                    peer_actor = "codex" if is_claude else "claude"
+                    self._pending_user_input_target = peer_actor
+                else:
+                    self._pending_user_input = ""
+                    self._pending_user_input_target = "both"
+
+        resume_after_halt = self._resume_after_halt
+        # Whether or not we use the resume prefix on this turn, we consume
+        # the flag here — only the first turn after a halt gets the notice.
+        self._resume_after_halt = False
+
+        # First-real-turn detection: no completed peer turn exists yet. This
+        # covers two cases — the very first turn of the session, and the
+        # case where C-1 was interrupted before X-1 ever ran.
+        last_peer_turn = self._last_turn_for("codex" if is_claude else "claude")
+        if last_peer_turn is None:
+            prompt = build_first_turn_prompt(
+                self.goal,
+                user_injection=user_injection,
+                resume_after_halt=resume_after_halt,
+            )
+        else:
+            prompt = build_turn_prompt(
+                self.round,
+                peer_name,
+                last_peer_turn.text,
+                user_injection=user_injection,
+                resume_after_halt=resume_after_halt,
+            )
 
         if self._max_tokens_per_turn:
             prompt += f"\n[Keep this response under {self._max_tokens_per_turn} tokens.]"
 
-        # stream the response
+        # ------ stream the response ------
         self._halt_requested = False
+        interrupted_mid_stream = False
+        interrupt_signaled = False
         turn_tokens_in = 0
         turn_tokens_out = 0
         turn_thread_id = ""
         async for chunk in agent.send(prompt):
+            # On halt: signal the agent to cancel (best effort) and stop
+            # accumulating chunks into the turn. We DO continue iterating so
+            # the underlying SDK / subprocess pipe drains naturally and is
+            # ready for the next turn.
             if self._halt_requested:
-                break
+                interrupted_mid_stream = True
+                if not interrupt_signaled:
+                    interrupt_signaled = True
+                    try:
+                        await agent.interrupt()
+                    except Exception:
+                        pass
+                continue  # drain remaining chunks but ignore them
+
             if chunk.kind == "text":
                 turn.text += chunk.content
                 self._broadcast({"type": "turn_chunk", "turn_id": turn_id,
@@ -198,10 +252,35 @@ class Session:
                 turn_thread_id = self._codex._session_id or ""
 
         turn.ended_at = datetime.now(timezone.utc)
+
+        # ------ interrupted path ------
+        if self.state == "halted" and interrupted_mid_stream:
+            turn.interrupted = True
+            # Keep the turn in self.turns as a permanent observable artifact.
+            # Do NOT pop, do NOT decrement counters — turn IDs must remain
+            # stable. Completed counters are NOT incremented (per spec, this
+            # turn never happened from the dialogue's perspective).
+            self._log({"kind": "turn_interrupted", "turn_id": turn_id, "actor": actor,
+                       "role": role, "round": self.round,
+                       "payload": {"text": turn.text, "reasoning": turn.reasoning,
+                                   "thread_id": turn_thread_id}})
+            self._interrupted_agent = actor
+            # Inform UI: turn_cancel decorates the partial card; state goes halted.
+            self._broadcast({"type": "turn_cancel", "turn_id": turn_id})
+            self._broadcast({"type": "state", "state": "halted",
+                             "round": self.round,
+                             "consecutive_agrees": self.consecutive_agrees})
+            return
+
+        # ------ normal completion ------
         turn.verdict = _parse_verdict(turn.text)
         duration_ms = int(
             (turn.ended_at - turn.started_at).total_seconds() * 1000
         )
+        if is_claude:
+            self._claude_completed += 1
+        else:
+            self._codex_completed += 1
 
         self._log({"kind": "turn_end", "turn_id": turn_id, "actor": actor,
                    "role": role, "round": self.round,
@@ -213,6 +292,8 @@ class Session:
                          "thread_id": turn_thread_id})
 
         if self.state == "halted":
+            # Clean halt that arrived between chunks but after the stream
+            # ended naturally — treat as not-interrupted.
             self._broadcast({"type": "state", "state": "halted",
                              "round": self.round, "consecutive_agrees": self.consecutive_agrees})
             return
@@ -284,11 +365,23 @@ class Session:
         if self._halt_timer_task and not self._halt_timer_task.done():
             self._halt_timer_task.cancel()
             self._halt_timer_task = None
-        # determine whose turn it was when halted — re-run it
-        if self.turns and self.turns[-1].actor == "claude":
-            self.state = "codex_turn"
+
+        if self._interrupted_agent is not None:
+            # Mid-stream halt — the same agent that was interrupted runs again
+            # with a fresh prompt built from clean history (interrupted turns
+            # are filtered out by _last_turn_for). The next prompt gets a
+            # "disregard previous in-flight" prefix so the agent doesn't
+            # try to continue its abandoned thought.
+            self.state = "claude_turn" if self._interrupted_agent == "claude" else "codex_turn"
+            self._interrupted_agent = None
+            self._resume_after_halt = True
         else:
-            self.state = "claude_turn"
+            # Clean halt between turns — peer goes next.
+            if self.turns and self.turns[-1].actor == "claude":
+                self.state = "codex_turn"
+            else:
+                self.state = "claude_turn"
+
         self._broadcast({"type": "state", "state": self.state,
                          "round": self.round, "consecutive_agrees": self.consecutive_agrees})
 
@@ -311,8 +404,11 @@ class Session:
             self._transcript.append(event)
 
     def _last_turn_for(self, actor: str) -> Turn | None:
+        """Return the most recent COMPLETED turn for `actor`. Interrupted
+        turns are skipped — per spec, an interrupted turn is invisible to
+        downstream prompt building."""
         for t in reversed(self.turns):
-            if t.actor == actor:
+            if t.actor == actor and not t.interrupted:
                 return t
         return None
 

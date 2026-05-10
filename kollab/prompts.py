@@ -57,11 +57,46 @@ def build_turn_prompt(
     peer_name: str,
     peer_last_text: str,
     user_injection: str = "",
+    resume_after_halt: bool = False,
 ) -> str:
     injection_block = f"\n[user]: {user_injection}\n" if user_injection else ""
-    return TURN_PROMPT_TEMPLATE.format(
+    body = TURN_PROMPT_TEMPLATE.format(
         round=round_num,
         peer_name=peer_name,
         peer_last_text=peer_last_text,
         user_injection=injection_block,
     )
+    if resume_after_halt:
+        return RESUME_PREFIX + body
+    return body
+
+
+RESUME_PREFIX = (
+    "[Note: your previous in-flight response was cancelled by the user before "
+    "completion. Disregard whatever you were drafting and respond fresh to the "
+    "instructions below.]\n\n"
+)
+
+
+FIRST_TURN_RESUME_PREFIX = (
+    "[Note: your previous in-flight response was cancelled by the user before "
+    "completion. Disregard whatever you were drafting and respond fresh to the "
+    "goal below.]\n\n"
+)
+
+
+def build_first_turn_prompt(goal: str, user_injection: str = "",
+                            resume_after_halt: bool = False) -> str:
+    """Prompt for the very first agent turn (no peer text yet).
+
+    Used both at session start and on resume when the very first turn was
+    interrupted before any peer turn happened.
+    """
+    injection_block = f"\n[user]: {user_injection}\n" if user_injection else ""
+    body = (
+        f"[Round 1] {goal}\n{injection_block}\n"
+        f"Produce your initial response. End with a <verdict> trailer."
+    )
+    if resume_after_halt:
+        return FIRST_TURN_RESUME_PREFIX + body
+    return body

@@ -64,3 +64,10 @@
   50%       { opacity: 0.4; }
 }
 .thinking { animation: thinking-pulse 1.2s ease-in-out infinite; }
+
+/* collapse chevron on turn cards */
+.collapse-chevron {
+  font-size: 1rem;
+  line-height: 1;
+  transition: transform 0.2s ease;
+}

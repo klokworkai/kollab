@@ -32,8 +32,6 @@ function applyTheme(theme) {
   const btn = document.getElementById('btn-theme-toggle');
   if (btn) btn.textContent = theme === 'light' ? '\uD83C\uDF19' : '\u2600';
 
-  // Force override Tailwind's baked-in colors via inline styles on root elements.
-  // Tailwind CDN injects after our stylesheet so !important in CSS can lose.
   const isLight = theme === 'light';
   const styles = isLight ? {
     bg:        '#f4f4f6',
@@ -55,11 +53,9 @@ function applyTheme(theme) {
     codexTint: '#162536',
   };
 
-  // body background + text
   document.body.style.backgroundColor = styles.bg;
   document.body.style.color = styles.text;
 
-  // All elements with Tailwind color classes — re-apply via inline style
   const overrides = [
     ['.bg-bg',        'backgroundColor', styles.bg],
     ['.bg-panel',     'backgroundColor', styles.panel],
@@ -72,16 +68,13 @@ function applyTheme(theme) {
   for (const [sel, prop, val] of overrides) {
     document.querySelectorAll(sel).forEach(el => { el.style[prop] = val; });
   }
-  // borders
-  document.querySelectorAll('.border-white\/10, .border-white\/20').forEach(el => {
+  document.querySelectorAll('.border-white\\/10, .border-white\\/20').forEach(el => {
     el.style.borderColor = styles.border;
   });
 
-  // store so dynamically created elements can call applyThemeToEl()
   window.__kollabThemeStyles = styles;
 }
 
-// Apply current theme to a freshly created DOM subtree
 function applyThemeToEl(el) {
   const styles = window.__kollabThemeStyles;
   if (!styles) return;
@@ -98,10 +91,10 @@ function applyThemeToEl(el) {
     el.querySelectorAll(sel).forEach(e => { e.style[prop] = val; });
     if (el.matches && el.matches(sel)) el.style[prop] = val;
   }
-  el.querySelectorAll('.border-white\/10, .border-white\/20').forEach(e => {
+  el.querySelectorAll('.border-white\\/10, .border-white\\/20').forEach(e => {
     e.style.borderColor = styles.border;
   });
-  if (el.matches && (el.matches('.border-white\/10') || el.matches('.border-white\/20'))) {
+  if (el.matches && (el.matches('.border-white\\/10') || el.matches('.border-white\\/20'))) {
     el.style.borderColor = styles.border;
   }
 }
@@ -115,7 +108,6 @@ document.getElementById('btn-theme-toggle').addEventListener('click', () => {
     body: JSON.stringify({ theme: next }) });
 });
 
-// init theme from localStorage, then sync from server config on load
 (async () => {
   const stored = localStorage.getItem(THEME_KEY);
   if (stored) {
@@ -143,7 +135,6 @@ document.getElementById('btn-history-toggle').addEventListener('click', () => {
   localStorage.setItem(HISTORY_KEY, (!collapsed).toString());
 });
 
-// default: collapsed on first load unless explicitly opened
 const _historySaved = localStorage.getItem(HISTORY_KEY);
 applyHistoryCollapse(_historySaved === null ? true : _historySaved === 'true');
 
@@ -152,7 +143,6 @@ applyHistoryCollapse(_historySaved === null ? true : _historySaved === 'true');
 const TABS_KEY = 'kollab_open_tabs';
 
 function saveOpenTabs() {
-  // only persist readonly/done/halted tabs — active tabs can't survive a refresh
   const persistable = tabs
     .filter(t => t.sessionId && t.state !== 'active')
     .map(t => ({ sessionId: t.sessionId, goal: t.goal, state: t.state }));
@@ -169,16 +159,12 @@ async function restoreOpenTabs() {
       if (!res.ok) continue;
       const data = await res.json();
       const tab = createTab(entry.goal || entry.sessionId, entry.sessionId, 'readonly');
-      // reconstruct without switching to it
-      const prevActiveId = activeTabId;
-      activeTabId = tab.id;  // temporarily so appendToActiveTab works
-      stickyBottom = false;
-      reconstructSession(tab, data.events);
+      // Write directly into tab._nodes — do NOT touch the live dialogue DOM.
+      // appendToActiveTab() would clobber whatever is currently displayed.
+      reconstructSessionIntoTab(tab, data.events);
       tab.scrollTop = 0;
-      activeTabId = prevActiveId;
     } catch (_) { /* skip broken entries */ }
   }
-  // restore the last active tab if there is one
   if (tabs.length > 0 && !activeTabId) {
     switchTab(tabs[tabs.length - 1].id);
   }
@@ -205,7 +191,7 @@ function createTab(goal, sessionId, state) {
     state: state || 'active',
     turnsEl: document.createDocumentFragment(),
     scrollTop: 0,
-    _nodes: [],   // actual DOM nodes (fragment is consumed on first use)
+    _nodes: [],
   };
   tabs.push(tab);
   renderTabBar();
@@ -227,7 +213,6 @@ function closeTab(tabId) {
 }
 
 function switchTab(tabId) {
-  // save scroll of outgoing tab
   if (activeTabId) {
     const outgoing = getTab(activeTabId);
     if (outgoing) outgoing.scrollTop = dialogue.scrollTop;
@@ -237,7 +222,6 @@ function switchTab(tabId) {
   const tab = getTab(tabId);
   if (!tab) return;
 
-  // clear dialogue and repopulate with this tab's nodes
   dialogue.innerHTML = '';
   for (const node of tab._nodes) {
     dialogue.appendChild(node);
@@ -269,16 +253,15 @@ function activeTab() {
 // ------------------------------------------------------------------ tab bar rendering
 
 function renderTabBar() {
-  // Remove all tab elements (keep the + New Session button)
   const oldTabs = tabBar.querySelectorAll('.kollab-tab');
   oldTabs.forEach(el => el.remove());
 
-  // update tab counter
   const countEl = document.getElementById('tab-count');
   if (countEl) countEl.textContent = tabs.length > 0 ? `${tabs.length}` : '';
+
   for (const tab of tabs) {
     const label = (tab.state === 'readonly' ? '[readonly] ' : '')
-      + (tab.goal ? tab.goal.slice(0, 40) + (tab.goal.length > 40 ? '…' : '') : 'New session');
+      + (tab.goal ? tab.goal.slice(0, 40) + (tab.goal.length > 40 ? '\u2026' : '') : 'New session');
 
     const el = document.createElement('div');
     el.className = 'kollab-tab flex items-center gap-1 px-3 py-2 text-xs cursor-pointer border-r border-white/10 whitespace-nowrap shrink-0 transition '
@@ -292,8 +275,8 @@ function renderTabBar() {
     labelSpan.addEventListener('click', () => switchTab(tab.id));
 
     const closeBtn = document.createElement('button');
-    closeBtn.textContent = '×';
-    closeBtn.className = 'ml-1 opacity-50 hover:opacity-100 transition';
+    closeBtn.textContent = '\u00d7';
+    closeBtn.className = 'ml-1 text-base leading-none opacity-50 hover:opacity-100 transition px-0.5';
     closeBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       handleTabClose(tab.id);
@@ -333,21 +316,17 @@ document.getElementById('btn-confirm-close-yes').addEventListener('click', async
 // ------------------------------------------------------------------ input strip
 
 function updateInputStrip(tab) {
-  const isHalted  = tab && tab.state === 'halted';
+  const isHalted   = tab && tab.state === 'halted';
   const isReadonly = !tab || tab.state === 'readonly' || tab.state === 'done';
 
-  // dropdown: only enabled when halted
   inputTarget.disabled = !isHalted;
-  if (!isHalted) {
-    inputTarget.value = '';
-  }
+  if (!isHalted) inputTarget.value = '';
 
-  // input + send: only enabled when halted AND target selected
   const targetSelected = isHalted && inputTarget.value !== '';
   userInput.disabled = !targetSelected;
   btnSend.disabled = !targetSelected;
   userInput.placeholder = isHalted
-    ? (targetSelected ? 'Type your instruction…' : 'Select a target first…')
+    ? (targetSelected ? 'Type your instruction\u2026' : 'Select a target first\u2026')
     : 'Session not halted';
 
   if (isReadonly) {
@@ -356,14 +335,13 @@ function updateInputStrip(tab) {
   }
 }
 
-// enable input once target is selected
 inputTarget.addEventListener('change', () => {
   const tab = activeTab();
   updateInputStrip(tab);
   if (inputTarget.value) userInput.focus();
 });
 
-// ------------------------------------------------------------------ append to active tab
+// ------------------------------------------------------------------ append helpers
 
 function appendToActiveTab(node) {
   const tab = activeTab();
@@ -374,11 +352,17 @@ function appendToActiveTab(node) {
   scrollIfSticky();
 }
 
+// Append directly into tab._nodes without touching live DOM.
+// Used when reconstructing a non-active tab (e.g. restoreOpenTabs).
+function appendNodeToTab(tab, node) {
+  applyThemeToEl(node);
+  tab._nodes.push(node);
+}
+
 // ------------------------------------------------------------------ WebSocket
 
 let ws = null;
 let stickyBottom = true;
-
 let wsReconnectAttempts = 0;
 
 function connectWS() {
@@ -403,7 +387,7 @@ function onServerGone() {
   document.getElementById('btn-shutdown').classList.add('opacity-40');
   document.getElementById('modal-shutdown').classList.add('hidden');
   const msg = document.getElementById('shutdown-msg');
-  msg.textContent = 'koll♠b has shut down.';
+  msg.textContent = 'koll\u2660b has shut down.';
   const noBtn = document.getElementById('btn-shutdown-no');
   noBtn.classList.add('hidden');
   const yesBtn = document.getElementById('btn-shutdown-yes');
@@ -417,22 +401,23 @@ function onServerGone() {
 
 function handleEvent(msg) {
   switch (msg.type) {
-    case 'turn_start':    onTurnStart(msg);   break;
-    case 'turn_chunk':    onTurnChunk(msg);   break;
-    case 'turn_end':      onTurnEnd(msg);     break;
-    case 'state':         onState(msg);       break;
-    case 'session_done':  onSessionDone(msg); break;
-    case 'error':         onError(msg);       break;
+    case 'turn_start':   onTurnStart(msg);   break;
+    case 'turn_chunk':   onTurnChunk(msg);   break;
+    case 'turn_end':     onTurnEnd(msg);     break;
+    case 'turn_cancel':  onTurnCancel(msg);  break;
+    case 'state':        onState(msg);       break;
+    case 'session_done': onSessionDone(msg); break;
+    case 'error':        onError(msg);       break;
   }
 }
 
-// ------------------------------------------------------------------ turn rendering
+// ------------------------------------------------------------------ turn card
 
 let currentTurnId = null;
 let isStreaming = false;
 
 function buildTurnCard(msg) {
-  const isClaude = msg.actor === 'claude';
+  const isClaude     = msg.actor === 'claude';
   const accentBg     = isClaude ? 'bg-claudeTint' : 'bg-codexTint';
   const accentBorder = isClaude ? 'border-claude'  : 'border-codex';
   const accentText   = isClaude ? 'text-claude'    : 'text-codex';
@@ -442,35 +427,77 @@ function buildTurnCard(msg) {
   card.className = `rounded-lg border ${accentBorder} ${accentBg} p-3 flex flex-col gap-2`;
   card.innerHTML = `
     <div class="flex items-center gap-2 text-xs">
+      <button id="collapse-${msg.turn_id}" class="text-muted opacity-30 cursor-not-allowed transition-transform select-none" title="Collapse" disabled>&#8250;</button>
       <span class="font-bold ${accentText} uppercase">${msg.actor}</span>
       <span class="text-muted">${msg.role}</span>
       <span id="badge-${msg.turn_id}" class="ml-auto font-mono text-muted">${msg.turn_id}</span>
       <span id="verdict-${msg.turn_id}"></span>
     </div>
-    <details id="reasoning-${msg.turn_id}" class="text-muted text-xs hidden">
-      <summary class="cursor-pointer hover:text-user">Reasoning</summary>
-      <pre id="reasoning-body-${msg.turn_id}" class="whitespace-pre-wrap mt-1 pl-2"></pre>
-    </details>
-    <pre id="body-${msg.turn_id}" class="whitespace-pre-wrap text-user thinking">…</pre>
+    <div id="collapsible-body-${msg.turn_id}" class="flex flex-col gap-2">
+      <details id="reasoning-${msg.turn_id}" class="text-muted text-xs hidden">
+        <summary class="cursor-pointer hover:text-user select-none">Reasoning</summary>
+        <pre id="reasoning-body-${msg.turn_id}" class="whitespace-pre-wrap mt-1 pl-2"></pre>
+      </details>
+      <details id="result-${msg.turn_id}" open>
+        <summary class="cursor-pointer hover:text-user text-xs text-muted select-none">Result</summary>
+        <pre id="body-${msg.turn_id}" class="whitespace-pre-wrap text-user thinking mt-1">\u2026</pre>
+      </details>
+    </div>
   `;
   return card;
 }
 
-function applyVerdict(turnId, verdict) {
-  const verdictEl = document.getElementById(`verdict-${turnId}`);
-  if (verdictEl && verdict) {
+function applyVerdict(turnId, verdict, root) {
+  const el = (root || document).getElementById(`verdict-${turnId}`);
+  if (el && verdict) {
     const colors = {
       AGREE:    'text-verdictAgree bg-verdictAgree/20',
       DISAGREE: 'text-verdictDisagree bg-verdictDisagree/20',
       REVISED:  'text-verdictRevised bg-verdictRevised/20',
     };
-    verdictEl.className = `text-xs px-1.5 py-0.5 rounded font-bold ${colors[verdict] || ''}`;
-    verdictEl.textContent = verdict;
+    el.className = `text-xs px-1.5 py-0.5 rounded font-bold ${colors[verdict] || ''}`;
+    el.textContent = verdict;
   }
 }
 
 function removeWaitingMsg() {
   if (waitingMsgEl) { waitingMsgEl.remove(); waitingMsgEl = null; }
+}
+
+function enableCollapseChevron(turnId, root) {
+  const btn = (root || document).getElementById(`collapse-${turnId}`);
+  if (!btn || !btn.disabled) return;  // already enabled
+  btn.disabled = false;
+  btn.classList.remove('opacity-30', 'cursor-not-allowed');
+  btn.classList.add('opacity-60', 'hover:opacity-100', 'cursor-pointer');
+  btn.style.transition = 'transform 0.2s';
+  let collapsed = false;
+  btn.addEventListener('click', () => {
+    collapsed = !collapsed;
+    const body = document.getElementById(`collapsible-body-${turnId}`);
+    if (body) body.style.display = collapsed ? 'none' : '';
+    btn.style.transform = collapsed ? 'rotate(90deg)' : '';
+    btn.title = collapsed ? 'Expand' : 'Collapse';
+  });
+}
+
+function onTurnCancel(msg) {
+  // Mid-stream halt: leave the card as a permanent observable artifact.
+  // Per spec, the agent will NOT pick up where it left off — the next turn
+  // (e.g. C-2 after an interrupted C-1) is a fresh response with the
+  // directive applied. The partial reasoning/output here is for the
+  // viewer's benefit only.
+  const body = document.getElementById(`body-${msg.turn_id}`);
+  if (body) body.classList.remove('thinking');
+  const card = document.getElementById(`turn-${msg.turn_id}`);
+  if (card) {
+    const note = document.createElement('div');
+    note.className = 'text-xs text-muted border-t border-white/10 pt-2 mt-1';
+    note.textContent = '\u23f8 interrupted';
+    card.appendChild(note);
+  }
+  isStreaming = false;
+  currentTurnId = null;
 }
 
 function onTurnStart(msg) {
@@ -507,13 +534,14 @@ function onTurnEnd(msg) {
   if (msg.thread_id) {
     const badge = document.getElementById(`badge-${msg.turn_id}`);
     if (badge) {
-      const short = msg.thread_id.length > 14 ? msg.thread_id.slice(0, 14) + '…' : msg.thread_id;
-      badge.textContent = `${msg.turn_id} · ${short}`;
+      const short = msg.thread_id.length > 14 ? msg.thread_id.slice(0, 14) + '\u2026' : msg.thread_id;
+      badge.textContent = `${msg.turn_id} \u00b7 ${short}`;
       badge.title = msg.thread_id;
     }
   }
   const body = document.getElementById(`body-${msg.turn_id}`);
   if (body) body.classList.remove('thinking');
+  enableCollapseChevron(msg.turn_id);
   isStreaming = false;
   currentTurnId = null;
   scrollIfSticky();
@@ -524,11 +552,11 @@ function onTurnEnd(msg) {
 function onState(msg) {
   const stateLabels = {
     idle:          'idle',
-    fanning_out:   'sending goal to both agents…',
-    claude_turn:   `claude thinking… · round ${msg.round}`,
-    codex_turn:    `codex thinking… · round ${msg.round}`,
+    fanning_out:   'sending goal to both agents\u2026',
+    claude_turn:   `claude thinking\u2026 \u00b7 round ${msg.round}`,
+    codex_turn:    `codex thinking\u2026 \u00b7 round ${msg.round}`,
     awaiting_user: 'awaiting input',
-    halted:        'halted — click Resume to continue',
+    halted:        'halted \u2014 click Resume to continue',
     done:          'session complete',
   };
   statusStrip.textContent = stateLabels[msg.state] || msg.state;
@@ -553,11 +581,11 @@ function onState(msg) {
 
 function onSessionDone(msg) {
   const reasons = {
-    convergence: '✓ Both agents reached agreement.',
-    round_limit: '⚠ Round limit reached.',
-    token_limit: '⚠ Token budget exhausted.',
-    halted:      '⏹ Session halted.',
-    expired:     '⏳ Stopped / expired.',
+    convergence: '\u2713 Both agents reached agreement.',
+    round_limit: '\u26a0 Round limit reached.',
+    token_limit: '\u26a0 Token budget exhausted.',
+    halted:      '\u23f9 Session halted.',
+    expired:     '\u23f3 Stopped / expired.',
   };
   const banner = document.createElement('div');
   banner.className = 'rounded-lg border border-white/20 bg-userPanel px-4 py-3 text-center text-muted';
@@ -568,13 +596,11 @@ function onSessionDone(msg) {
   if (tab) tab.state = 'done';
 
   btnStop.classList.add('hidden');
-  statusStrip.textContent = `done — ${msg.reason}`;
+  statusStrip.textContent = `done \u2014 ${msg.reason}`;
   updateInputStrip(tab);
   renderTabBar();
   scrollIfSticky();
   saveOpenTabs();
-
-  // refresh history pane
   loadHistory();
 }
 
@@ -594,7 +620,7 @@ userInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKe
 
 btnStop.addEventListener('click', async () => {
   btnStop.disabled = true;
-  btnStop.textContent = 'Stopping…';
+  btnStop.textContent = 'Stopping\u2026';
   btnStop.classList.add('opacity-50');
   const res = await fetch('/api/session/stop', { method: 'POST' });
   if (!res.ok) {
@@ -605,7 +631,6 @@ btnStop.addEventListener('click', async () => {
 });
 
 btnResume.addEventListener('click', () => {
-  // check for unsent instruction
   if (inputTarget.value && userInput.value.trim()) {
     showUnsentToast();
     return;
@@ -621,7 +646,6 @@ function doResume() {
 }
 
 function showUnsentToast() {
-  // remove existing toast if any
   document.getElementById('unsent-toast')?.remove();
   const toast = document.createElement('div');
   toast.id = 'unsent-toast';
@@ -652,12 +676,11 @@ async function sendInput() {
   const ref = text.match(/\b([CX]-\d+)\b/);
   if (ref) highlightCard(ref[1]);
 
-  // render user instruction card
   const targetLabels = { claude: 'CLAUDE', codex: 'CODEX', both: 'CLAUDE, CODEX' };
   const card = document.createElement('div');
   card.className = 'rounded-lg border border-white/10 bg-userPanel p-3 flex flex-col gap-1';
   card.innerHTML = `
-    <div class="text-xs text-muted uppercase">USER → ${targetLabels[target] || target.toUpperCase()}</div>
+    <div class="text-xs text-muted uppercase">DIRECTIVE \u2192 ${targetLabels[target] || target.toUpperCase()}</div>
     <pre class="whitespace-pre-wrap text-user">${escHtml(text)}</pre>
   `;
   appendToActiveTab(card);
@@ -678,12 +701,29 @@ function highlightCard(turnId) {
   setTimeout(() => { card.style.boxShadow = ''; }, 1200);
 }
 
+// ------------------------------------------------------------------ Esc to close modals
+
+const MODAL_ESC_MAP = [
+  { modalId: 'modal-new-session',    cancelId: 'btn-modal-cancel' },
+  { modalId: 'modal-configure',      cancelId: 'btn-config-cancel' },
+  { modalId: 'modal-shutdown',       cancelId: 'btn-shutdown-no' },
+  { modalId: 'modal-confirm-close',  cancelId: 'btn-confirm-close-no' },
+  { modalId: 'modal-confirm-delete', cancelId: 'btn-confirm-delete-no' },
+];
+
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  for (const { modalId, cancelId } of MODAL_ESC_MAP) {
+    const modal = document.getElementById(modalId);
+    if (modal && !modal.classList.contains('hidden')) {
+      document.getElementById(cancelId)?.click();
+      break;
+    }
+  }
+});
+
 // ------------------------------------------------------------------ new session modal
 
-// Model matrix — single source of truth for all model dropdowns.
-// label: short display name shown in UI
-// model: full model string passed to the CLI
-// tier: fast | gp | high-end
 const MODEL_MATRIX = {
   claude: [
     { label: 'haiku',  model: 'claude-haiku-4-5-20251001', tier: 'fast'     },
@@ -708,7 +748,6 @@ function populateSelect(selectEl, agentKey, currentValue) {
 }
 
 btnNewSession.addEventListener('click', async () => {
-  // block if a session is already active
   const runningTab = tabs.find(t => t.state === 'active');
   if (runningTab) {
     switchTab(runningTab.id);
@@ -720,7 +759,6 @@ btnNewSession.addEventListener('click', async () => {
     return;
   }
 
-  // fetch config to pre-fill defaults
   let cfg = {};
   try {
     const res = await fetch('/api/config');
@@ -749,7 +787,6 @@ document.getElementById('btn-modal-start').addEventListener('click', async () =>
   const goal = document.getElementById('goal-input').value.trim();
   if (!goal) return;
 
-  // collect overrides — only send fields the user actually changed
   let cfg = {};
   try { const r = await fetch('/api/config'); if (r.ok) cfg = await r.json(); } catch (_) {}
 
@@ -776,7 +813,6 @@ document.getElementById('btn-modal-start').addEventListener('click', async () =>
   const tab = createTab(goal, null, 'active');
   switchTab(tab.id);
 
-  // render goal card immediately
   const goalCard = document.createElement('div');
   goalCard.className = 'rounded-lg border border-white/10 bg-userPanel p-3 flex flex-col gap-1';
   goalCard.innerHTML = `
@@ -787,7 +823,7 @@ document.getElementById('btn-modal-start').addEventListener('click', async () =>
 
   waitingMsgEl = document.createElement('p');
   waitingMsgEl.className = 'text-muted text-center mt-16';
-  waitingMsgEl.textContent = 'Waiting for Claude to respond…';
+  waitingMsgEl.textContent = 'Waiting for Claude to respond\u2026';
   appendToActiveTab(waitingMsgEl);
 
   const res = await fetch('/api/session', {
@@ -822,25 +858,25 @@ document.getElementById('btn-shutdown-no').addEventListener('click', () => {
 
 document.getElementById('btn-shutdown-yes').addEventListener('click', async () => {
   document.getElementById('btn-shutdown-yes').disabled = true;
-  document.getElementById('btn-shutdown-yes').textContent = 'Quitting…';
+  document.getElementById('btn-shutdown-yes').textContent = 'Quitting\u2026';
   await fetch('/api/shutdown', { method: 'POST' });
-  document.body.innerHTML = '<p style="color:#888;font-family:monospace;padding:2rem">koll♠b has shut down. You can close this tab.</p>';
+  document.body.innerHTML = '<p style="color:#888;font-family:monospace;padding:2rem">koll\u2660b has shut down. You can close this tab.</p>';
 });
 
 // ------------------------------------------------------------------ configure modal
 
 const configFields = [
-  { key: 'claude_binary', label: 'Claude binary path' },
-  { key: 'claude_model',  label: 'Claude model', type: 'select', agentKey: 'claude' },
-  { key: 'claude_workdir',label: 'Claude working dir' },
-  { key: 'codex_binary',  label: 'Codex binary path' },
-  { key: 'codex_model',   label: 'Codex model',  type: 'select', agentKey: 'codex' },
-  { key: 'codex_workdir', label: 'Codex working dir' },
-  { key: 'round_limit',   label: 'Round limit', type: 'number' },
-  { key: 'halt_timeout_secs', label: 'Halt timeout (seconds, 0 = never)', type: 'number' },
-  { key: 'port',          label: 'Port', type: 'number' },
-  { key: 'sessions_dir',  label: 'Sessions dir' },
-  { key: '_mcp_sep',      label: 'MCP Tools', type: 'section' },
+  { key: 'claude_binary',          label: 'Claude binary path' },
+  { key: 'claude_model',           label: 'Claude model',  type: 'select', agentKey: 'claude' },
+  { key: 'claude_workdir',         label: 'Claude working dir' },
+  { key: 'codex_binary',           label: 'Codex binary path' },
+  { key: 'codex_model',            label: 'Codex model',   type: 'select', agentKey: 'codex' },
+  { key: 'codex_workdir',          label: 'Codex working dir' },
+  { key: 'round_limit',            label: 'Round limit',   type: 'number' },
+  { key: 'halt_timeout_secs',      label: 'Halt timeout (seconds, 0 = never)', type: 'number' },
+  { key: 'port',                   label: 'Port',          type: 'number' },
+  { key: 'sessions_dir',           label: 'Sessions dir' },
+  { key: '_mcp_sep',               label: 'MCP Tools',     type: 'section' },
   { key: 'mcp_filesystem_enabled', label: 'Filesystem MCP enabled', type: 'checkbox' },
   { key: 'mcp_filesystem_paths',   label: 'Filesystem allowed paths (one per line)', type: 'textarea' },
   { key: 'mcp_github_enabled',     label: 'GitHub MCP enabled',     type: 'checkbox' },
@@ -941,18 +977,17 @@ document.getElementById('btn-config-save').addEventListener('click', async () =>
     document.getElementById('modal-configure').classList.add('hidden');
     errEl.classList.add('hidden');
   } else {
-    errEl.textContent = result.errors.join(' · ');
+    errEl.textContent = result.errors.join(' \u00b7 ');
     errEl.classList.remove('hidden');
   }
 });
 
 // ------------------------------------------------------------------ history pane
 
-let _historyFilter = null;  // null = show all, or 'convergence' | 'round_limit' | 'halted'
+let _historyFilter = null;
 let _pendingDeleteId = null;
 let _allSessions = [];
 
-// wire filter buttons
 document.querySelectorAll('.history-filter').forEach(btn => {
   btn.addEventListener('click', () => {
     const f = btn.dataset.filter;
@@ -966,7 +1001,6 @@ document.querySelectorAll('.history-filter').forEach(btn => {
   });
 });
 
-// wire delete confirm modal
 document.getElementById('btn-confirm-delete-no').addEventListener('click', () => {
   _pendingDeleteId = null;
   document.getElementById('modal-confirm-delete').classList.add('hidden');
@@ -1096,17 +1130,35 @@ async function openHistorySession(sessionId, goal) {
   saveOpenTabs();
 }
 
-// ------------------------------------------------------------------ readonly reconstruction
+// ------------------------------------------------------------------ session reconstruction
 
+// Background restore: write into tab._nodes only, never touch live DOM.
+function reconstructSessionIntoTab(tab, events) {
+  const readonlyBanner = document.createElement('div');
+  readonlyBanner.className = 'rounded border border-white/10 bg-userPanel px-4 py-2 text-center text-muted text-xs';
+  readonlyBanner.textContent = 'This session is complete. Read-only view.';
+  appendNodeToTab(tab, readonlyBanner);
+  _reconstructEvents(events, node => appendNodeToTab(tab, node));
+}
+
+// Foreground open: write into active tab via appendToActiveTab (touches live DOM).
 function reconstructSession(tab, events) {
-  // readonly banner
   const readonlyBanner = document.createElement('div');
   readonlyBanner.className = 'rounded border border-white/10 bg-userPanel px-4 py-2 text-center text-muted text-xs';
   readonlyBanner.textContent = 'This session is complete. Read-only view.';
   appendToActiveTab(readonlyBanner);
+  _reconstructEvents(events, node => appendToActiveTab(node));
+}
+
+// Core reconstruction logic. appendFn adds a node wherever appropriate.
+// Maintains a local cardMap so turn_end/turn_interrupted can find their card
+// without relying on document.getElementById (which fails for off-DOM nodes).
+function _reconstructEvents(events, appendFn) {
+  const cardMap = {}; // turn_id -> card DOM node
 
   for (const ev of events) {
     const kind = ev.kind;
+
     if (kind === 'session_start') {
       const goalCard = document.createElement('div');
       goalCard.className = 'rounded-lg border border-white/10 bg-userPanel p-3 flex flex-col gap-1';
@@ -1114,61 +1166,80 @@ function reconstructSession(tab, events) {
         <div class="text-xs text-muted uppercase">goal</div>
         <pre class="whitespace-pre-wrap text-user">${escHtml(ev.payload?.goal || '')}</pre>
       `;
-      appendToActiveTab(goalCard);
+      appendFn(goalCard);
+
     } else if (kind === 'turn_start') {
-      const card = buildTurnCard({
-        turn_id: ev.turn_id,
-        actor: ev.actor,
-        role: ev.role,
-      });
-      // clear thinking placeholder — will be filled by turn_end
-      appendToActiveTab(card);
-    } else if (kind === 'turn_end') {
-      const body = document.getElementById(`body-${ev.turn_id}`);
+      const card = buildTurnCard({ turn_id: ev.turn_id, actor: ev.actor, role: ev.role });
+      cardMap[ev.turn_id] = card;
+      appendFn(card);
+
+    } else if (kind === 'turn_end' || kind === 'turn_interrupted') {
+      const card = cardMap[ev.turn_id];
+      const interrupted = kind === 'turn_interrupted';
+
+      // populate body
+      const body = card ? card.querySelector(`#body-${ev.turn_id}`) : null;
       if (body) {
         body.classList.remove('thinking');
-        body.textContent = ev.payload?.text || '';
+        body.textContent = ev.payload?.text || (interrupted ? '(no output before interrupt)' : '');
       }
-      applyVerdict(ev.turn_id, ev.payload?.verdict);
+
+      // populate reasoning
+      if (ev.payload?.reasoning) {
+        const details = card ? card.querySelector(`#reasoning-${ev.turn_id}`) : null;
+        const pre = card ? card.querySelector(`#reasoning-body-${ev.turn_id}`) : null;
+        if (details && pre) { details.classList.remove('hidden'); pre.textContent = ev.payload.reasoning; }
+      }
+
+      // badge
       const threadId = ev.payload?.thread_id || ev.thread_id || '';
-      if (threadId) {
-        const badge = document.getElementById(`badge-${ev.turn_id}`);
+      if (threadId && card) {
+        const badge = card.querySelector(`#badge-${ev.turn_id}`);
         if (badge) {
           const short = threadId.length > 14 ? threadId.slice(0, 14) + '\u2026' : threadId;
           badge.textContent = `${ev.turn_id} \u00b7 ${short}`;
           badge.title = threadId;
         }
       }
-      if (ev.payload?.reasoning) {
-        const details = document.getElementById(`reasoning-${ev.turn_id}`);
-        const pre = document.getElementById(`reasoning-body-${ev.turn_id}`);
-        if (details && pre) {
-          details.classList.remove('hidden');
-          pre.textContent = ev.payload.reasoning;
-        }
+
+      // verdict (turn_end only)
+      if (!interrupted) applyVerdict(ev.turn_id, ev.payload?.verdict, card);
+
+      // chevron
+      enableCollapseChevron(ev.turn_id, card);
+
+      // interrupted note
+      if (interrupted && card) {
+        const note = document.createElement('div');
+        note.className = 'text-xs text-muted border-t border-white/10 pt-2 mt-1';
+        note.textContent = '\u23f8 interrupted';
+        card.appendChild(note);
       }
+
     } else if (kind === 'user_input') {
       const targetLabels = { claude: 'CLAUDE', codex: 'CODEX', both: 'CLAUDE, CODEX' };
       const target = ev.payload?.target || 'both';
       const userCard = document.createElement('div');
       userCard.className = 'rounded-lg border border-white/10 bg-userPanel p-3 flex flex-col gap-1';
       userCard.innerHTML = `
-        <div class="text-xs text-muted uppercase">USER → ${targetLabels[target] || target.toUpperCase()}</div>
+        <div class="text-xs text-muted uppercase">DIRECTIVE \u2192 ${targetLabels[target] || target.toUpperCase()}</div>
         <pre class="whitespace-pre-wrap text-user">${escHtml(ev.payload?.text || '')}</pre>
       `;
-      appendToActiveTab(userCard);
+      appendFn(userCard);
+
     } else if (kind === 'session_end') {
       const reasons = {
-        convergence: '✓ Both agents reached agreement.',
-        round_limit: '⚠ Round limit reached.',
-        token_limit: '⚠ Token budget exhausted.',
-        halted:      '⏹ Session halted.',
+        convergence: '\u2713 Both agents reached agreement.',
+        round_limit: '\u26a0 Round limit reached.',
+        token_limit: '\u26a0 Token budget exhausted.',
+        halted:      '\u23f9 Session halted.',
+        expired:     '\u23f3 Stopped / expired.',
       };
       const reason = ev.payload?.reason || '';
       const banner = document.createElement('div');
       banner.className = 'rounded-lg border border-white/20 bg-userPanel px-4 py-3 text-center text-muted';
       banner.textContent = reasons[reason] || `Session ended: ${reason}`;
-      appendToActiveTab(banner);
+      appendFn(banner);
     }
   }
 }

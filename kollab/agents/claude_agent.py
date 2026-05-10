@@ -96,6 +96,24 @@ class ClaudeAgent(Agent):
             await self._client.disconnect()
             self._client = None
 
+    async def interrupt(self) -> None:
+        """Cancel the in-flight turn without tearing down the session.
+
+        Per the Claude SDK contract, interrupt() requests cancellation of the
+        in-flight turn; the active receive_response() iterator should then
+        deliver a terminal ResultMessage and end. ACE keeps consuming chunks
+        until the loop drains naturally so the SDK is in a clean state for
+        the next query().
+        """
+        if self._client is None:
+            return
+        try:
+            await self._client.interrupt()
+        except Exception:
+            # interrupt() may fail if the turn has already finished or the
+            # SDK is in an unexpected state. Best-effort.
+            pass
+
 
 def _chunk_from_stream_event(event: dict) -> AgentChunk | None:
     if event.get("type") != "content_block_delta":

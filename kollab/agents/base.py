@@ -29,3 +29,11 @@ class Agent(ABC):
     @abstractmethod
     async def stop(self) -> None:
         """Clean up the session."""
+
+    async def interrupt(self) -> None:
+        """Cancel the in-flight turn cleanly without tearing down the session.
+
+        Default no-op so existing agents that don't override stay valid;
+        Claude and Codex override.
+        """
+        return None
