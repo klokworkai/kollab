@@ -245,7 +245,6 @@ coverage.xml
 # user config and session logs live in ~/.kollab/ but if anyone
 # accidentally creates a local one or mounts it in, ignore it
 .kollab/
-sessions/
 workspace/
 *.jsonl
 
