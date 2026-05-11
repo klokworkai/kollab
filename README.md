@@ -93,7 +93,7 @@ Save, then click **+ New Session** and type your goal.
 
 **Reference a prior turn** — include `C-3` or `X-2` in your message. ACE routes it to the cited agent with the referenced turn as quoted context. Example: *"X-2 was wrong about latency — Claude, push back."*
 
-**Multiple sessions** — open multiple tabs, each running an independent session. Switch between them freely. The input strip always operates on the active tab.
+**Multiple sessions** — open multiple tabs, each running an independent session. Switch between them freely. The input strip always operates on the active tab. [coming soon]
 
 **History pane** — click **≡** to toggle the history pane. Completed sessions appear there with goal preview, timestamp, and end-reason pill (converged / round limit / halted). Click any row to open a readonly replay tab.
 
