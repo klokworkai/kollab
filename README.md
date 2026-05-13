@@ -6,31 +6,53 @@
 
 # koll♠b
 
-koll♠b is a transparent, adversarial-collaborative dialogue between Claude Code and OpenAI Codex — powered by ACE 🤖, the Adversarial Collab Engine.
+koll♠b is a transparent, adversarial-collaborative dialogue engine that pits two AI coding agents — **Claude** (Anthropic) and **Codex** (OpenAI) — against each other on a single goal you define. Every turn, every critique, every revision, and every disagreement is rendered live in your browser as it happens.
 
-You give koll♠b a goal. Claude produces. Codex critiques. Claude defends or revises. Repeat until they agree, or until they hit a round limit. Every turn is rendered in a chat-style browser UI so you can see exactly how each model receives criticism, pushes back, concedes, or revises. You can interrupt, inject directed instructions, or halt at any time.
+The product is the **visibility into the inter-model dynamic** — not the orchestration itself. koll♠b is a demo and observability tool, not a production pipeline.
 
-This is a demo project. The point is the visibility into the inter-model dynamic, not the orchestration itself.
-
-> ⚠️ Early-stage. APIs, UI, and behavior will change. Not for production use.
+> ⚠️ Early-stage demo. Not for production use.
 
 ---
 
-## What it actually does
+## How it works — enter ACE, the Adversarial Collab Engine
 
-- Runs **Claude Code** (the CLI agent harness) and **OpenAI Codex** as two long-lived peer agents
-- Sends the user's goal to both **in parallel** at session start so each forms its own first-hand understanding
-- Drives a turn-based loop: producer (Claude) → critic (Codex) → producer → critic, with each turn ending in a structured `<verdict>AGREE | DISAGREE | REVISED</verdict>` trailer
-- Renders the full dialogue live in a browser UI with response IDs (`C-1`, `X-2`, …), color-coded turn cards, and collapsible reasoning blocks
-- Supports multiple concurrent tabs — each tab is an independent session
-- Maintains a history pane of all completed sessions with one-click readonly replay
-- Logs every event as JSONL on disk
+At the heart of koll♠b is **ACE — the Adversarial Collab Engine**. ACE owns the session state machine, drives every turn, parses verdict trailers, and enforces convergence rules. It doesn't understand what Claude and Codex are saying — it reads the `<verdict>` tag at the end of each turn and acts on it mechanically. When Codex emits `AGREE`, ACE closes the session. When the round limit is hit, ACE stops the loop. The intelligence is in the agents; ACE runs the show.
+
+When you submit a goal, ACE fans it out to both agents simultaneously — each model reads your goal first-hand before seeing any peer output. ACE then alternates turns, feeding each agent only the peer's latest message (not a full transcript replay), so each model reacts to the other in real time.
+
+**Claude is the Producer.** It writes the initial proposal — code, design, argument — and defends or revises it under critique. Claude's first turn is always the `PROPOSAL`.
+
+**Codex is the Critic.** It adversarially reviews Claude's output, finds real flaws, and issues a verdict each turn. The critic's verdict is the only one that matters — a single Codex `AGREE` ends the session regardless of round count.
+
+Each turn ends with a structured verdict trailer:
+
+| Verdict | Meaning |
+|---|---|
+| `AGREE` | Critique accepted / issue resolved — debate over |
+| `DISAGREE` | Position held, critique rejected — continue |
+| `REVISED` | Work updated in response to critique — continue |
+
+Sessions end on **convergence** (Codex AGREEs), **round limit** (max rounds without agreement), **token limit** (budget exhausted), or **halt** (you stopped it).
+
+---
+
+## What it does
+
+- Runs **Claude Code** (the CLI agent harness) and **OpenAI Codex** as two long-lived persistent agents
+- Sends your goal to both **in parallel** at session start so each forms its own first-hand understanding
+- Drives a turn-based producer → critic loop, each turn ending in a `<verdict>` trailer that ACE parses
+- Streams the full dialogue live in a browser UI with turn IDs (`C-1`, `X-1`, …), color-coded cards (orange = Claude, blue = Codex), collapsible reasoning blocks, and verdict pills
+- Supports **Stop & Resume** at any point — even mid-stream — with optional directed instructions injected into specific agents on resume
+- Maintains a **history pane** of all completed sessions with filter by outcome and one-click readonly replay
+- Persists open tabs across browser refreshes
+- Logs every event as append-only JSONL on disk
+- Runs entirely on your machine — no cloud, no accounts, no telemetry
 
 ## What it is not
 
 - Not a multi-agent framework, CI tool, or code-review platform
 - Not a wrapper around the Claude API or the Claude desktop/web app — it specifically drives **Claude Code**
-- Not a replacement for [`codex-plugin-cc`](https://github.com/openai/codex-plugin-cc), which solves a related but different problem
+- Not multi-user, not cloud-hosted, not production-grade
 
 ---
 
@@ -41,11 +63,12 @@ This is a demo project. The point is the visibility into the inter-model dynamic
 - Python 3.11+
 - [Claude Code](https://docs.claude.com/en/docs/claude-code) installed and authenticated (`claude --version` works)
 - [OpenAI Codex CLI](https://github.com/openai/codex) installed and authenticated (`codex --version` works)
+- npm (for MCP filesystem tool, auto-installed on first run)
 
 ### From source
 
 ```bash
-git clone <repo-url> kollab
+git clone https://github.com/klokworkai/kollab
 cd kollab
 pip install -e .
 ```
@@ -61,7 +84,7 @@ docker run --rm -p 8765:8765 \
   kollab
 ```
 
-The mounts pass through your existing Claude Code and Codex CLI auth so you don't have to sign in again inside the container.
+The mounts pass through your existing Claude Code and Codex CLI auth.
 
 ---
 
@@ -71,79 +94,50 @@ The mounts pass through your existing Claude Code and Codex CLI auth so you don'
 kollab
 ```
 
-This starts the local server and opens `http://localhost:8765` in your default browser.
+Opens `http://localhost:8765` in your default browser. On first run, MCP packages are auto-installed into `~/.kollab/mcp/`.
 
-On first run, the **Configure** modal will appear. Set:
-
-- Path to the `claude` and `codex` binaries (auto-detected if on `PATH`)
-- Model preferences for each
-- Round limit, working directories
-
-Save, then click **+ New Session** and type your goal.
+If this is your first time, open **⚙ Configure** and verify the binary paths, then click **+ New Session**.
 
 ---
 
 ## Usage
 
-**Start a session** — click **+ New Session**, type your goal, optionally override the round limit or per-session token budget, then hit Start. The goal is sent to both agents in parallel and their first turns stream in live.
+**Start a session** — click **+ New Session**, type your goal, optionally override the model, round limit, or token budget for this run, then hit Start.
 
-**Interrupt** — click **Stop** at any time. The current turn is cancelled cleanly. When halted, select a target agent (`Claude`, `Codex`, or `Claude, Codex`) before the input box enables, then type your instruction and click **Send**. Click **Resume** to continue.
+**Stop & Resume** — click **Stop** at any time, including mid-stream. The partial output stays visible as an artifact but is never fed back to either agent. On Resume, optionally select a target and type a directive before continuing.
 
-**Directed input** — when a session is halted, you must select a target before the input box enables. The target is required — there is no free-form `@agent` syntax. Your message is injected only into the targeted agent's next turn and rendered as `USER → CLAUDE`, `USER → CODEX`, or `USER → CLAUDE, CODEX`.
+**Directives** — while halted, select a target (`→ Claude`, `→ Codex`, or `→ Claude, Codex`) and type an instruction. It's injected into that agent's next prompt only and rendered as a `DIRECTIVE →` card in the session.
 
-**Reference a prior turn** — include `C-3` or `X-2` in your message. ACE routes it to the cited agent with the referenced turn as quoted context. Example: *"X-2 was wrong about latency — Claude, push back."*
+**History pane** — click **≡** to toggle. Filter by outcome (green = converged, amber = round limit, red = halted/expired). Click any row to open a readonly replay tab. Hover to reveal the × delete button.
 
-**Multiple sessions** — open multiple tabs, each running an independent session. Switch between them freely. The input strip always operates on the active tab. [coming soon]
+**Collapse all** — the `− collapse all` toggle below the goal card collapses every turn card body at once, useful for scanning verdicts across a long session.
 
-**History pane** — click **≡** to toggle the history pane. Completed sessions appear there with goal preview, timestamp, and end-reason pill (converged / round limit / halted). Click any row to open a readonly replay tab.
+**Close all tabs** — the × button left of the tab count closes all inactive tabs without touching an active running session.
 
-**Readonly replay** — reconstructs all turn cards from the JSONL log. Visually identical to a live session. Input strip is disabled.
+**About** — click **?** in the top bar for the full about page and feature guide at `/about`.
 
-**Configure** — click **⚙** at any time.
-
-**Quit** — click **Quit** in the top bar to cleanly shut down the server and close the browser tab.
-
-**Logs** — all session events are written as JSONL to `~/.kollab/sessions/<session-id>.jsonl`. Inspect with `jq`.
-
----
-
-## What koll♠b is for
-
-- Watching how two frontier models actually negotiate disagreement
-- Demonstrating that cross-vendor agent collaboration is possible and legible
-- Studying where each model concedes, where each digs in, where they converge
-- Building intuition about which model is the better critic, the better producer, on which kinds of tasks
-
-If you want a production multi-agent orchestrator, look at Conductor, Claude Squad, or Claude Code's built-in Agent Teams.
+**Logs** — `~/.kollab/sessions/<session-id>.jsonl`. Inspect with `jq`.
 
 ---
 
 ## Configuration
 
-Config lives at `~/.kollab/config.toml`. The Configure modal in the UI is the recommended way to edit it; direct file edits work too.
+Config lives at `~/.kollab/config.toml`. The **⚙ Configure** modal is the recommended way to edit it.
 
-Defaults:
+| Field | Default | Description |
+|---|---|---|
+| `claude_binary` | `claude` | Path to Claude Code CLI |
+| `claude_model` | `claude-sonnet-4-6` | Default Claude model |
+| `codex_binary` | `codex` | Path to Codex CLI |
+| `codex_model` | `gpt-5.4` | Default Codex model |
+| `round_limit` | `8` | Max rounds per session |
+| `halt_timeout_secs` | `1800` | Auto-expire halted sessions (0 = never) |
+| `port` | `8765` | Server port |
+| `sessions_dir` | `~/.kollab/sessions` | JSONL session log directory |
+| `mcp_filesystem_enabled` | `true` | Give Claude filesystem MCP access |
+| `mcp_filesystem_paths` | `[]` | Allowed paths (empty = agent workdir) |
 
-```toml
-[claude]
-binary = "claude"
-model = "sonnet"
-workdir = "~/.kollab/workspace/claude"
-
-[codex]
-binary = "codex"
-model = "gpt-5.4"
-workdir = "~/.kollab/workspace/codex"
-
-[session]
-round_limit = 8
-sessions_dir = "~/.kollab/sessions"
-
-[server]
-port = 8765
-```
-
-Per-session overrides (round limit, token budget, model) can be set in the New Session modal without touching the config file.
+Per-session overrides (model, round limit, token budget) can be set in the New Session modal without touching the config file.
 
 ---
 
@@ -164,7 +158,7 @@ Per-session overrides (round limit, token budget, model) can be set in the New S
    ~/.kollab/sessions/*.jsonl  (event log)
 ```
 
-Single Python process. WebSocket for live events. No database — JSONL on disk is sufficient.
+Single Python process. WebSocket for live events. No database — JSONL on disk.
 
 ---
 
@@ -189,4 +183,4 @@ TBD.
 
 ## Status
 
-v2 in smoke testing. v1 MVP complete.
+v2 — active development. Core dialogue loop, halt/resume, history, streaming, and about page complete.
