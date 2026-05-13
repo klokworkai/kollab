@@ -39,7 +39,7 @@ class Config(BaseModel):
     # MCP tool toggles
     mcp_filesystem_enabled: bool = True
     mcp_filesystem_paths: list[str] = []
-    mcp_github_enabled: bool = True
+    mcp_github_enabled: bool = False
     mcp_github_token: str = ""
 
     # UI theme

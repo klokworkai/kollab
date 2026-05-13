@@ -95,7 +95,8 @@ def build_first_turn_prompt(goal: str, user_injection: str = "",
     injection_block = f"\n[user]: {user_injection}\n" if user_injection else ""
     body = (
         f"[Round 1] {goal}\n{injection_block}\n"
-        f"Produce your initial response. End with a <verdict> trailer."
+        f"Produce your initial proposal. Do NOT include a <verdict> trailer on this first turn — "
+        f"there is nothing to agree or disagree with yet."
     )
     if resume_after_halt:
         return FIRST_TURN_RESUME_PREFIX + body

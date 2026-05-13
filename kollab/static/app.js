@@ -99,6 +99,10 @@ function applyThemeToEl(el) {
   }
 }
 
+document.getElementById('btn-about').addEventListener('click', () => {
+  window.open('/about', 'kollab-about');
+});
+
 document.getElementById('btn-theme-toggle').addEventListener('click', () => {
   const current = document.documentElement.getAttribute('data-theme') || 'dark';
   const next = current === 'dark' ? 'light' : 'dark';
@@ -416,22 +420,49 @@ function handleEvent(msg) {
 let currentTurnId = null;
 let isStreaming = false;
 
+function buildCollapseToggle() {
+  let allCollapsed = false;
+  const bar = document.createElement('div');
+  bar.className = 'flex justify-start';
+  const btn = document.createElement('button');
+  btn.className = 'text-xs text-muted opacity-40 hover:opacity-80 transition';
+  btn.textContent = '− collapse all';
+  btn.addEventListener('click', () => {
+    allCollapsed = !allCollapsed;
+    btn.textContent = allCollapsed ? '+ expand all' : '− collapse all';
+    // toggle all collapsible bodies in the active dialogue
+    dialogue.querySelectorAll('[id^="collapsible-body-"]').forEach(body => {
+      body.style.display = allCollapsed ? 'none' : '';
+    });
+    // sync chevrons
+    dialogue.querySelectorAll('[id^="collapse-"]').forEach(chevron => {
+      if (!chevron.disabled) {
+        chevron.style.transform = allCollapsed ? 'rotate(90deg)' : '';
+        chevron.title = allCollapsed ? 'Expand' : 'Collapse';
+      }
+    });
+  });
+  bar.appendChild(btn);
+  return bar;
+}
+
 function buildTurnCard(msg) {
   const isClaude     = msg.actor === 'claude';
   const accentBg     = isClaude ? 'bg-claudeTint' : 'bg-codexTint';
   const accentBorder = isClaude ? 'border-claude'  : 'border-codex';
   const accentText   = isClaude ? 'text-claude'    : 'text-codex';
+  const roleLabel    = msg.role;
 
   const card = document.createElement('div');
   card.id = `turn-${msg.turn_id}`;
   card.className = `rounded-lg border ${accentBorder} ${accentBg} p-3 flex flex-col gap-2`;
   card.innerHTML = `
     <div class="flex items-center gap-2 text-xs">
-      <button id="collapse-${msg.turn_id}" class="text-muted opacity-30 cursor-not-allowed transition-transform select-none" title="Collapse" disabled>&#8250;</button>
+      <button id="collapse-${msg.turn_id}" class="text-muted text-base opacity-30 cursor-not-allowed transition-transform select-none" title="Collapse" disabled>&#8250;</button>
       <span class="font-bold ${accentText} uppercase">${msg.actor}</span>
-      <span class="text-muted">${msg.role}</span>
+      <span class="text-muted">${roleLabel}</span>
       <span id="badge-${msg.turn_id}" class="ml-auto font-mono text-muted">${msg.turn_id}</span>
-      <span id="verdict-${msg.turn_id}"></span>
+      <span id="verdict-${msg.turn_id}" ${msg.turn_id === 'C-1' ? 'class="text-xs px-1.5 py-0.5 rounded font-bold text-muted bg-white/10"' : ''}>${msg.turn_id === 'C-1' ? 'PROPOSAL' : ''}</span>
     </div>
     <div id="collapsible-body-${msg.turn_id}" class="flex flex-col gap-2">
       <details id="reasoning-${msg.turn_id}" class="text-muted text-xs hidden">
@@ -448,7 +479,8 @@ function buildTurnCard(msg) {
 }
 
 function applyVerdict(turnId, verdict, root) {
-  const el = (root || document).getElementById(`verdict-${turnId}`);
+  if (turnId === 'C-1') return;  // C-1 is always PROPOSAL, never a verdict
+  const el = root ? root.querySelector(`#verdict-${turnId}`) : document.getElementById(`verdict-${turnId}`);
   if (el && verdict) {
     const colors = {
       AGREE:    'text-verdictAgree bg-verdictAgree/20',
@@ -465,7 +497,7 @@ function removeWaitingMsg() {
 }
 
 function enableCollapseChevron(turnId, root) {
-  const btn = (root || document).getElementById(`collapse-${turnId}`);
+  const btn = root ? root.querySelector(`#collapse-${turnId}`) : document.getElementById(`collapse-${turnId}`);
   if (!btn || !btn.disabled) return;  // already enabled
   btn.disabled = false;
   btn.classList.remove('opacity-30', 'cursor-not-allowed');
@@ -523,6 +555,7 @@ function onTurnChunk(msg) {
     const pre = document.getElementById(`reasoning-body-${msg.turn_id}`);
     if (details && pre) {
       details.classList.remove('hidden');
+      details.open = true;
       pre.textContent += msg.content;
     }
   }
@@ -747,10 +780,14 @@ function populateSelect(selectEl, agentKey, currentValue) {
   }
 }
 
+document.getElementById('btn-close-all-tabs').addEventListener('click', () => {
+  const toClose = tabs.filter(t => t.state !== 'active').map(t => t.id);
+  for (const id of toClose) closeTab(id);
+});
+
 btnNewSession.addEventListener('click', async () => {
   const runningTab = tabs.find(t => t.state === 'active');
   if (runningTab) {
-    switchTab(runningTab.id);
     const toast = document.createElement('div');
     toast.className = 'fixed bottom-20 left-1/2 -translate-x-1/2 bg-panel border border-white/20 rounded px-4 py-2 text-xs text-muted z-50';
     toast.textContent = 'A session is already running. Stop it or wait for it to finish.';
@@ -820,6 +857,7 @@ document.getElementById('btn-modal-start').addEventListener('click', async () =>
     <pre class="whitespace-pre-wrap text-user">${escHtml(goal)}</pre>
   `;
   appendToActiveTab(goalCard);
+  appendToActiveTab(buildCollapseToggle());
 
   waitingMsgEl = document.createElement('p');
   waitingMsgEl.className = 'text-muted text-center mt-16';
@@ -879,8 +917,7 @@ const configFields = [
   { key: '_mcp_sep',               label: 'MCP Tools',     type: 'section' },
   { key: 'mcp_filesystem_enabled', label: 'Filesystem MCP enabled', type: 'checkbox' },
   { key: 'mcp_filesystem_paths',   label: 'Filesystem allowed paths (one per line)', type: 'textarea' },
-  { key: 'mcp_github_enabled',     label: 'GitHub MCP enabled',     type: 'checkbox' },
-  { key: 'mcp_github_token',       label: 'GitHub token',           type: 'password' },
+  { key: '_github_coming_soon',    label: 'GitHub MCP — coming soon', type: 'section' },
 ];
 
 document.getElementById('btn-configure').addEventListener('click', async () => {
@@ -888,10 +925,11 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
   const cfg = await res.json();
   const form = document.getElementById('config-form');
   form.innerHTML = '';
+  form.className = 'grid grid-cols-2 gap-x-4 gap-y-3';
   for (const f of configFields) {
     if (f.type === 'section') {
       const sep = document.createElement('div');
-      sep.className = 'border-t border-white/10 pt-3 mt-1';
+      sep.className = 'col-span-2 border-t border-white/10 pt-3 mt-1';
       sep.innerHTML = `<p class="text-xs text-muted uppercase tracking-wider">${f.label}</p>`;
       form.appendChild(sep);
       continue;
@@ -928,6 +966,7 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
       input.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none font-mono text-xs';
       input.value = Array.isArray(cfg[f.key]) ? cfg[f.key].join('\n') : (cfg[f.key] || '');
       input.placeholder = 'Leave empty to use agent workdir';
+      label.className += ' col-span-2';
     } else if (f.type === 'password') {
       input = document.createElement('input');
       input.type = 'password';
@@ -1167,6 +1206,7 @@ function _reconstructEvents(events, appendFn) {
         <pre class="whitespace-pre-wrap text-user">${escHtml(ev.payload?.goal || '')}</pre>
       `;
       appendFn(goalCard);
+      appendFn(buildCollapseToggle());
 
     } else if (kind === 'turn_start') {
       const card = buildTurnCard({ turn_id: ev.turn_id, actor: ev.actor, role: ev.role });
@@ -1188,7 +1228,7 @@ function _reconstructEvents(events, appendFn) {
       if (ev.payload?.reasoning) {
         const details = card ? card.querySelector(`#reasoning-${ev.turn_id}`) : null;
         const pre = card ? card.querySelector(`#reasoning-body-${ev.turn_id}`) : null;
-        if (details && pre) { details.classList.remove('hidden'); pre.textContent = ev.payload.reasoning; }
+        if (details && pre) { details.classList.remove('hidden'); details.open = true; pre.textContent = ev.payload.reasoning; }
       }
 
       // badge

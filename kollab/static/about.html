@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>About · koll♠b</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            claude:    '#cc6600',
+            codex:     '#3b6fb3',
+            verdictRevised: '#d4a017',
+            verdictAgree:   '#4caf50',
+            verdictDisagree:'#cf6679',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    :root {
+      --bg:         #0e0e10;
+      --panel:      #17171a;
+      --user-panel: #202024;
+      --text:       #e5e5e5;
+      --text-dim:   #c8c8c8;
+      --muted:      #888888;
+      --border:     rgba(255,255,255,0.08);
+      --border-mid: rgba(255,255,255,0.15);
+    }
+    :root.light {
+      --bg:         #f4f4f6;
+      --panel:      #ffffff;
+      --user-panel: #ebebee;
+      --text:       #1a1a1e;
+      --text-dim:   #2a2a2e;
+      --muted:      #606060;
+      --border:     rgba(0,0,0,0.08);
+      --border-mid: rgba(0,0,0,0.15);
+    }
+    * { transition: background-color 0.15s, color 0.15s, border-color 0.15s; box-sizing: border-box; }
+    body { background: var(--bg); color: var(--text); font-family: monospace; margin: 0; }
+    h2 { color: #cc6600; font-size: 22px; letter-spacing: 0.01em; margin-bottom: 0.75rem; margin-top: 0.25rem; font-weight: bold; }
+    p { color: var(--text-dim); line-height: 1.75; margin-bottom: 1rem; font-size: 13px; }
+    .section { border-top: 1px solid var(--border); padding-top: 2rem; margin-top: 2rem; }
+    .screenshot {
+      border: 1px solid var(--border-mid);
+      border-radius: 8px;
+      max-width: 100%;
+      display: block;
+      margin-bottom: 0.5rem;
+    }
+    .placeholder {
+      border: 1.5px dashed var(--border-mid);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-family: monospace;
+      background: var(--user-panel);
+    }
+    .how-to-item { margin-bottom: 2.5rem; }
+    .how-to-item h3 { font-size: 0.82rem; font-weight: bold; color: var(--text); margin-bottom: 0.4rem; margin-top: 0.6rem; }
+    .how-to-item p { margin-bottom: 0; }
+    .pill {
+      display: inline-block; font-size: 0.65rem;
+      padding: 0.1rem 0.45rem; border-radius: 4px;
+      font-weight: bold; vertical-align: middle;
+    }
+    .pill-agree    { background: rgba(76,175,80,0.2);   color: #4caf50; }
+    .pill-disagree { background: rgba(207,102,121,0.2); color: #cf6679; }
+    .pill-revised  { background: rgba(212,160,23,0.2);  color: #d4a017; }
+    .pill-proposal { background: rgba(255,255,255,0.08); color: #888; }
+    :root.light .pill-proposal { background: rgba(0,0,0,0.06); }
+    .flow-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0; }
+    .flow-node {
+      background: var(--user-panel); border: 1px solid var(--border-mid);
+      border-radius: 5px; padding: 0.3rem 0.7rem;
+      font-size: 0.75rem; color: var(--muted);
+    }
+    .flow-node.claude { border-color: #cc6600; color: #cc6600; }
+    .flow-node.codex  { border-color: #3b6fb3; color: #3b6fb3; }
+    .flow-arrow { color: var(--muted); font-size: 0.8rem; }
+    code { color: var(--muted); }
+    #btn-theme {
+      position: fixed; top: 1rem; right: 1.5rem;
+      background: var(--panel); border: 1px solid var(--border-mid);
+      color: var(--muted); border-radius: 6px;
+      padding: 0.3rem 0.65rem; font-size: 0.85rem;
+      cursor: pointer; font-family: monospace;
+    }
+    #btn-theme:hover { color: var(--text); }
+    .caption { font-size: 0.7rem; color: var(--muted); margin-bottom: 1.25rem; opacity: 0.7; }
+  </style>
+</head>
+<body>
+
+  <button id="btn-theme" title="Toggle theme">☀</button>
+
+  <div style="max-width:700px;margin:0 auto;padding:3rem 1.5rem 5rem">
+
+    <!-- ── HEADER ── -->
+    <div style="text-align:center;margin-bottom:2.5rem">
+      <img src="/static/assets/kollab-logo.png" alt="koll♠b logo" style="width:340px;max-width:100%;height:auto;margin:0 auto 1rem" />
+      <div style="font-size:1.4rem;font-weight:bold;letter-spacing:0.03em">koll&#9824;b</div>
+      <div style="color:var(--muted);font-size:0.72rem;margin-top:0.2rem">ACE &middot; Adversarial Collab Engine</div>
+      <div style="color:var(--muted);font-size:0.68rem;opacity:0.5;margin-top:0.1rem">A Klokwork AI project</div>
+    </div>
+
+    <!-- ── WHAT IS KOLLB ── -->
+    <div>
+      <h2 style="color:#cc6600;font-size:22px;font-weight:bold;margin-bottom:0.75rem">what is koll&#9824;b</h2>
+      <p>
+        koll&#9824;b is a transparent, adversarial-collaborative dialogue engine that pits two AI coding agents —
+        <span style="color:#cc6600">Claude</span> (Anthropic) and <span style="color:#3b6fb3">Codex</span> (OpenAI) —
+        against each other on a single goal you define. Every turn, every critique, every revision, and every
+        disagreement is rendered live in your browser as it happens.
+      </p>
+      <p>
+        The product is the <em>visibility into the inter-model dynamic</em> — not the orchestration itself.
+        koll&#9824;b is a demo and observability tool, not a production pipeline. The goal is legibility:
+        you should be able to follow exactly what each model understood, what it challenged, and why it
+        changed its mind (or didn't).
+      </p>
+      <p>
+        koll&#9824;b runs entirely on your machine. No cloud, no accounts, no telemetry.
+        Session logs are stored as plain JSONL files on disk. Nothing leaves your computer except
+        the API calls to Anthropic and OpenAI.
+      </p>
+    </div>
+
+    <!-- ── HOW IT WORKS ── -->
+    <div class="section">
+      <h2 style="color:#cc6600;font-size:22px;font-weight:bold;margin-bottom:0.75rem">how it works — enter ACE, the Adversarial Collab Engine</h2>
+      <p>
+        At the heart of koll&#9824;b is <strong>ACE — the Adversarial Collab Engine</strong>. ACE owns the
+        session state machine, drives every turn, parses verdict trailers, and enforces the convergence
+        rules. It doesn't understand what Claude and Codex are saying — it reads the
+        <code>&lt;verdict&gt;</code> tag at the end of each turn and acts on it mechanically.
+        When Codex emits AGREE, ACE closes the session. When the round limit is hit, ACE stops the loop.
+        The intelligence is in the agents; ACE runs the show.
+      </p>
+      <p>
+        When you submit a goal, ACE fans it out to both agents simultaneously — each model reads
+        your goal first-hand and forms its own understanding before seeing any peer output.
+        ACE then alternates turns, feeding each agent only the peer's latest message (not a full
+        transcript replay), so each model reacts to the other in real time, the way a genuine debate works.
+      </p>
+
+      <div class="flow-row">
+        <div class="flow-node">Your Goal</div>
+        <div class="flow-arrow">&#8594;</div>
+        <div class="flow-node claude">Claude · Producer</div>
+        <div class="flow-arrow">&#8594;</div>
+        <div class="flow-node codex">Codex · Critic</div>
+        <div class="flow-arrow">&#8594;</div>
+        <div class="flow-node claude">Claude responds</div>
+        <div class="flow-arrow">&#8594;</div>
+        <div class="flow-node" style="color:var(--muted)">&#8230; rounds &#8230;</div>
+        <div class="flow-arrow">&#8594;</div>
+        <div class="flow-node" style="color:var(--muted)">Convergence</div>
+      </div>
+
+      <p>
+        <strong style="color:#cc6600">Claude is the Producer.</strong> It writes the initial proposal —
+        code, design, argument — and defends or revises it in response to critique. Claude's first turn
+        is always labeled <span class="pill pill-proposal">PROPOSAL</span>.
+      </p>
+      <p>
+        <strong style="color:#3b6fb3">Codex is the Critic.</strong> It adversarially reviews Claude's
+        output, finds real flaws, and issues a verdict each turn. When Codex is satisfied, the session
+        converges. <em>The critic's verdict is the only one that matters</em> — a single Codex AGREE
+        ends the session, regardless of round count.
+      </p>
+
+      <p>Each turn ends with a structured verdict trailer that ACE parses:</p>
+      <div style="display:flex;flex-direction:column;gap:0.5rem;margin:0.75rem 0 1.25rem">
+        <div style="display:flex;align-items:center;gap:0.75rem">
+          <span class="pill pill-agree">AGREE</span>
+          <span style="font-size:0.8rem;color:var(--muted)">critique accepted / issue resolved — debate over</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:0.75rem">
+          <span class="pill pill-disagree">DISAGREE</span>
+          <span style="font-size:0.8rem;color:var(--muted)">position held, critique rejected — continue</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:0.75rem">
+          <span class="pill pill-revised">REVISED</span>
+          <span style="font-size:0.8rem;color:var(--muted)">work updated in response to critique — continue</span>
+        </div>
+      </div>
+
+      <p>
+        Sessions end on <strong>convergence</strong> (Codex AGREEs),
+        <strong>round limit</strong> (max rounds without agreement),
+        <strong>token limit</strong> (session budget exhausted), or
+        <strong>halt</strong> (you stopped it).
+      </p>
+    </div>
+
+    <!-- ── HOW TO USE ── -->
+    <div class="section">
+      <h2 style="color:#cc6600;font-size:22px;font-weight:bold;margin-bottom:0.75rem">how to use</h2>
+
+      <!-- Main UI -->
+      <div class="how-to-item">
+        <h3>The main interface</h3>
+        <img src="/static/assets/kollab-open.png" alt="koll♠b main interface" class="screenshot" />
+        <p class="caption">The koll♠b interface: history pane (left), session tab bar (top), dialogue area (centre), status strip and input bar (bottom). Top-right: ?, theme toggle, Configure, Quit.</p>
+        <p>
+          The left history pane lists all past sessions — click ≡ to collapse or expand it.
+          The main area shows the active session's turn cards streaming in real time.
+          The top-right cluster holds global controls: <strong>?</strong> opens this page,
+          the <strong>☀/🌙</strong> toggle switches between light and dark theme,
+          <strong>⚙ Configure</strong> opens global settings, and <strong>⏻ Quit</strong>
+          shuts the server down cleanly.
+        </p>
+      </div>
+
+      <!-- History -->
+      <div class="how-to-item">
+        <h3>History pane (≡)</h3>
+        <img src="/static/assets/history.png" alt="History pane" class="screenshot" style="max-width:260px" />
+        <p class="caption">The history pane showing 34 sessions filtered by outcome. The highlighted row is the currently open tab.</p>
+        <p>
+          Every completed session appears here with a goal preview, relative timestamp, and an
+          end-reason label. The three coloured filter squares at the top let you filter by outcome —
+          <span style="color:#4caf50">■ green</span> (converged),
+          <span style="color:#d4a017">■ amber</span> (round limit),
+          <span style="color:#cf6679">■ red</span> (halted or expired).
+          Click any row to open that session as a read-only tab.
+          Hover a row to reveal the × delete button — deletion permanently removes the session log from disk.
+        </p>
+      </div>
+
+      <!-- New Session -->
+      <div class="how-to-item">
+        <h3>+ New Session</h3>
+        <img src="/static/assets/new-session-dialog.png" alt="New Session dialog" class="screenshot" />
+        <p class="caption">The New Session modal. Enter your goal, optionally override models and limits for this run.</p>
+        <p>
+          Click <strong>+ New Session</strong> in the top-right of the tab bar to open this modal.
+          Describe your goal in the text area — a coding problem, a design question, an algorithm
+          to review — then optionally override the defaults just for this run:
+        </p>
+        <ul style="font-size:0.85rem;color:var(--text-dim);line-height:1.8;padding-left:1.25rem;margin-bottom:0.75rem">
+          <li><strong>Claude model / Codex model</strong> — pick the tier for each agent (haiku/sonnet/opus, mini/gpt-5.4)</li>
+          <li><strong>Round limit</strong> — cap the number of back-and-forth rounds (default from Configure)</li>
+          <li><strong>Max tokens / turn</strong> — advisory limit injected into each agent's prompt</li>
+          <li><strong>Max tokens / session</strong> — hard halt when cumulative token budget is hit</li>
+        </ul>
+        <p>Only one session can run at a time. The Start button is disabled if a session is already active.</p>
+      </div>
+
+      <!-- Configure -->
+      <div class="how-to-item">
+        <h3>⚙ Configure</h3>
+        <img src="/static/assets/configure-dialog.png" alt="Configure dialog" class="screenshot" />
+        <p class="caption">The Configure modal showing all global settings in a two-column layout.</p>
+        <p>
+          Global settings that apply to every session unless overridden at session start:
+        </p>
+        <ul style="font-size:0.85rem;color:var(--text-dim);line-height:1.8;padding-left:1.25rem;margin-bottom:0.75rem">
+          <li><strong>Claude / Codex binary path</strong> — path to the CLI binaries (default: <code>claude</code>, <code>codex</code>)</li>
+          <li><strong>Claude / Codex model</strong> — default model for new sessions</li>
+          <li><strong>Claude / Codex working dir</strong> — the directory each agent operates in</li>
+          <li><strong>Round limit</strong> — default max rounds per session</li>
+          <li><strong>Halt timeout</strong> — seconds before a halted session auto-expires (0 = never)</li>
+          <li><strong>Port</strong> — server port (restart required to take effect)</li>
+          <li><strong>Sessions dir</strong> — where JSONL session logs are stored</li>
+          <li><strong>Filesystem MCP</strong> — gives Claude read access to specified paths; leave blank to use its working dir</li>
+        </ul>
+        <p>GitHub MCP is coming in a future release.</p>
+      </div>
+
+      <!-- Turn cards — placeholder -->
+      <div class="how-to-item">
+        <h3>Turn cards</h3>
+        <div class="placeholder" style="height:160px;margin-bottom:0.5rem">[ screenshot: turn cards — coming ]</div>
+        <p class="caption">Claude turn cards have an orange border; Codex cards have a blue border.</p>
+        <p>
+          Each agent response is a turn card. <span style="color:#cc6600">Orange border = Claude (producer)</span>,
+          <span style="color:#3b6fb3">blue border = Codex (critic)</span>.
+          The card header shows the actor name, role, turn ID (C-1, X-1, C-2…), a thread session badge,
+          and the verdict pill. Claude's first card always shows <span class="pill pill-proposal">PROPOSAL</span>.
+          Subsequent cards show <span class="pill pill-agree">AGREE</span>,
+          <span class="pill pill-disagree">DISAGREE</span>, or <span class="pill pill-revised">REVISED</span>
+          once the turn completes.
+        </p>
+        <p>
+          The <strong>&#8250; chevron</strong> on the left of each card header collapses the entire card body.
+          If Claude reasoned before responding, a collapsible <strong>Reasoning</strong> block appears above
+          the result — it's expanded by default so you can follow Claude's thinking as it streams in.
+          Use the <strong>− collapse all</strong> toggle below the goal card to collapse every card at once,
+          useful for scanning verdicts across a long session.
+        </p>
+      </div>
+
+      <!-- Stop & Resume — placeholder -->
+      <div class="how-to-item">
+        <h3>Stop &amp; Resume</h3>
+        <div class="placeholder" style="height:80px;margin-bottom:0.5rem">[ screenshot: Stop / Resume — coming ]</div>
+        <p class="caption">The Stop button appears while a session is running. Resume appears when halted.</p>
+        <p>
+          <strong>Stop</strong> halts the session at any point — even mid-stream while an agent is responding.
+          The partial output stays visible in the UI as an observable artifact, but it is never fed back to
+          either agent. The session stays open and can be resumed.
+        </p>
+        <p>
+          On <strong>Resume</strong>: if you have something to say to an agent before continuing, select a
+          target (Claude, Codex, or both) and type your instruction — this is called a <em>directive</em>.
+          The targeted agent receives it as part of their next prompt. If you resume without a directive,
+          the interrupted agent re-runs fresh from clean history as if the interruption never happened.
+        </p>
+      </div>
+
+      <!-- Directives — placeholder -->
+      <div class="how-to-item">
+        <h3>Directives</h3>
+        <div class="placeholder" style="height:60px;margin-bottom:0.5rem">[ screenshot: directive input — coming ]</div>
+        <p class="caption">The input bar with target selector — only enabled when a session is halted.</p>
+        <p>
+          While a session is halted, the input bar unlocks. Select a target — <strong>→ Claude</strong>,
+          <strong>→ Codex</strong>, or <strong>→ Claude, Codex</strong> — then type your instruction and
+          click Send (or press Enter). The directive is injected into that agent's next turn prompt only;
+          the other agent doesn't see it unless you target both.
+          Directives appear in the session as <code>DIRECTIVE → CLAUDE</code> cards, visible in both
+          live and read-only history views.
+        </p>
+      </div>
+
+      <!-- Tab bar & close all -->
+      <div class="how-to-item">
+        <h3>Tab bar &amp; × Close all</h3>
+        <p>
+          Each session opens in a tab in the tab bar at the top of the main area.
+          Completed and halted tabs persist across browser refreshes — they're restored automatically
+          on next load from the session log. The <strong>×</strong> button to the left of the session
+          count closes all inactive tabs at once; the active running session (if any) is never touched.
+          Closing an active tab prompts confirmation and stops the session.
+        </p>
+      </div>
+
+      <!-- Collapse all -->
+      <div class="how-to-item">
+        <h3>− Collapse all / + Expand all</h3>
+        <p>
+          A small toggle that appears just below the goal card at the start of every session.
+          Click it to collapse every turn card body simultaneously — useful when a session has
+          many rounds and you want to scan just the verdict pills without scrolling through full
+          responses. Click again to expand everything back.
+        </p>
+      </div>
+
+    </div>
+
+    <!-- ── STACK ── -->
+    <div class="section">
+      <h2 style="color:#cc6600;font-size:22px;font-weight:bold;margin-bottom:0.75rem">stack &amp; design philosophy</h2>
+      <p>
+        Python 3.11+, FastAPI, WebSockets on the backend. Vanilla HTML + Tailwind CDN + a single
+        <code>app.js</code> on the frontend. No build step, no bundler, no React.
+        JSONL logs on disk, TOML config — no database, no auth, no multi-tenancy.
+      </p>
+      <p>
+        koll&#9824;b is a <strong>demo and observability tool</strong>. Every design decision optimises
+        for legibility and demo-ability over scale or robustness. If a suggestion starts sounding
+        enterprise-grade, it's wrong for this project.
+      </p>
+    </div>
+
+    <div class="section" style="padding-bottom:3rem;display:flex;flex-direction:column;align-items:center;gap:0.6rem">
+      <img src="/static/assets/klokwork-lowercase-k-only.png" alt="Klokwork AI" style="height:80px;width:auto" />
+      <span style="color:var(--muted);font-size:0.7rem;opacity:0.4">koll&#9824;b &middot; Klokwork AI &middot; built with Claude Code</span>
+    </div>
+
+  </div>
+
+  <script>
+    const THEME_KEY = 'kollab_theme';
+    const btn = document.getElementById('btn-theme');
+
+    function applyTheme(theme) {
+      if (theme === 'light') {
+        document.documentElement.classList.add('light');
+        btn.textContent = '🌙';
+      } else {
+        document.documentElement.classList.remove('light');
+        btn.textContent = '☀';
+      }
+    }
+
+    applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
+
+    btn.addEventListener('click', () => {
+      const next = document.documentElement.classList.contains('light') ? 'dark' : 'light';
+      localStorage.setItem(THEME_KEY, next);
+      applyTheme(next);
+    });
+
+    window.addEventListener('storage', e => {
+      if (e.key === THEME_KEY) applyTheme(e.newValue || 'dark');
+    });
+  </script>
+
+</body>
+</html>

@@ -62,7 +62,7 @@ class Session:
         self.round: int = 0
         self.turns: list[Turn] = []
         self.state: SessionState = "idle"
-        self.consecutive_agrees: int = 0
+        self.consecutive_agrees: int = 0  # kept for broadcast compat; convergence now driven by Codex AGREE alone
         self._cfg = cfg
         self._broadcast = broadcast
         self._round_limit: int = ov.round_limit if ov.round_limit is not None else cfg.round_limit
@@ -76,8 +76,6 @@ class Session:
             workdir=Path(cfg.claude_workdir).expanduser().__str__(),
             mcp_filesystem_enabled=cfg.mcp_filesystem_enabled,
             mcp_filesystem_paths=[Path(p).expanduser().__str__() for p in cfg.mcp_filesystem_paths],
-            mcp_github_enabled=cfg.mcp_github_enabled,
-            mcp_github_token=cfg.mcp_github_token,
         )
         self._codex = CodexAgent(
             role="critic",
@@ -86,8 +84,6 @@ class Session:
             workdir=Path(cfg.codex_workdir).expanduser().__str__(),
             mcp_filesystem_enabled=cfg.mcp_filesystem_enabled,
             mcp_filesystem_paths=[Path(p).expanduser().__str__() for p in cfg.mcp_filesystem_paths],
-            mcp_github_enabled=cfg.mcp_github_enabled,
-            mcp_github_token=cfg.mcp_github_token,
         )
         self._transcript: TranscriptLog | None = None
         self._claude_turn_count: int = 0
@@ -299,12 +295,10 @@ class Session:
             return
 
         # convergence tracking
-        if turn.verdict == "AGREE":
-            self.consecutive_agrees += 1
-        else:
-            self.consecutive_agrees = 0
-
-        if self.consecutive_agrees >= 2:
+        # Codex is the critic — a Codex AGREE means the debate is over,
+        # regardless of what Claude said. No need for Claude to acknowledge.
+        if not is_claude and turn.verdict == "AGREE":
+            self.consecutive_agrees += 1  # will be 1; kept for UI broadcast
             self._done_reason = "convergence"
             self.state = "done"
         elif self._max_tokens_per_session and self._session_tokens >= self._max_tokens_per_session:
@@ -314,6 +308,10 @@ class Session:
             self._done_reason = "round_limit"
             self.state = "done"
         else:
+            if turn.verdict == "AGREE":
+                self.consecutive_agrees += 1
+            else:
+                self.consecutive_agrees = 0
             self.state = "codex_turn" if is_claude else "claude_turn"
 
         self._broadcast({"type": "state", "state": self.state,

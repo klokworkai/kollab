@@ -42,6 +42,11 @@ def _broadcast(msg: dict) -> None:
 
 # ------------------------------------------------------------------ static
 
+@app.get("/about")
+async def about() -> FileResponse:
+    return FileResponse(_static_dir / "about.html")
+
+
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(_static_dir / "index.html")

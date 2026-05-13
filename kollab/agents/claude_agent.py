@@ -14,17 +14,13 @@ class ClaudeAgent(Agent):
 
     def __init__(self, role: str, binary: str, model: str, workdir: str,
                  mcp_filesystem_enabled: bool = False,
-                 mcp_filesystem_paths: list[str] | None = None,
-                 mcp_github_enabled: bool = False,
-                 mcp_github_token: str = "") -> None:
+                 mcp_filesystem_paths: list[str] | None = None) -> None:
         self.role = role
         self._binary = binary
         self._model = model
         self._workdir = workdir
         self._mcp_filesystem_enabled = mcp_filesystem_enabled
         self._mcp_filesystem_paths = mcp_filesystem_paths or []
-        self._mcp_github_enabled = mcp_github_enabled
-        self._mcp_github_token = mcp_github_token
         self._client: ClaudeSDKClient | None = None
         self._session_id: str | None = None
 
@@ -39,15 +35,6 @@ class ClaudeAgent(Agent):
                     "command": "node",
                     "args": [str(fs_bin)] + paths,
                 }
-        if self._mcp_github_enabled and self._mcp_github_token:
-            gh_bin = mcp_server_path("mcp_github")
-            if gh_bin.exists():
-                mcp_servers["github"] = {
-                    "type": "stdio",
-                    "command": "node",
-                    "args": [str(gh_bin)],
-                    "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": self._mcp_github_token},
-                }
         options = sdk_types.ClaudeAgentOptions(
             system_prompt=system_prompt,
             model=self._model,
@@ -55,6 +42,7 @@ class ClaudeAgent(Agent):
             cli_path=self._binary,
             permission_mode="bypassPermissions",
             mcp_servers=mcp_servers if mcp_servers else {},
+            include_partial_messages=True,
         )
         self._client = ClaudeSDKClient(options=options)
         await self._client.connect()
@@ -69,10 +57,12 @@ class ClaudeAgent(Agent):
                 if chunk:
                     yield chunk
             elif isinstance(msg, sdk_types.AssistantMessage):
+                # include_partial_messages=True means text was already streamed
+                # live via StreamEvent text_delta chunks. Only emit ThinkingBlock
+                # here — reasoning cannot stream when thinking blocks are present
+                # (SDK constraint) so AssistantMessage is the only delivery path.
                 for block in msg.content:
-                    if isinstance(block, sdk_types.TextBlock):
-                        yield AgentChunk(kind="text", content=block.text)
-                    elif isinstance(block, sdk_types.ThinkingBlock):
+                    if isinstance(block, sdk_types.ThinkingBlock):
                         yield AgentChunk(kind="reasoning", content=block.thinking)
             elif isinstance(msg, sdk_types.ResultMessage):
                 self._session_id = msg.session_id
