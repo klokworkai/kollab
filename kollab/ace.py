@@ -55,9 +55,11 @@ class Turn:
 
 class Session:
     def __init__(self, cfg: Config, broadcast: BroadcastFn,
-                 overrides: SessionOverrides | None = None) -> None:
+                 overrides: SessionOverrides | None = None,
+                 session_number: int = 0) -> None:
         ov = overrides or SessionOverrides()
         self.id: str = _make_session_id()
+        self.session_number: int = session_number
         self.goal: str = ""
         self.round: int = 0
         self.turns: list[Turn] = []
@@ -112,9 +114,10 @@ class Session:
         sessions_dir = Path(self._cfg.sessions_dir).expanduser()
         self._transcript = TranscriptLog(self.id, sessions_dir)
         self._log({"kind": "session_start", "actor": "system", "role": "system",
-                   "round": 0, "payload": {"goal": goal}})
+                   "round": 0, "payload": {"goal": goal, "session_number": self.session_number}})
         self._broadcast({"type": "state", "state": "fanning_out", "round": 0,
-                         "consecutive_agrees": 0})
+                         "consecutive_agrees": 0, "session_number": self.session_number,
+                         "session_id": self.id})
         self.state = "fanning_out"
         await asyncio.gather(
             self._claude.start(SYSTEM_PRODUCER, goal),
@@ -319,7 +322,8 @@ class Session:
         if self.state == "done":
             self._log({"kind": "session_end", "actor": "system", "role": "system",
                        "round": self.round, "payload": {"reason": self._done_reason}})
-            self._broadcast({"type": "session_done", "reason": self._done_reason})
+            self._broadcast({"type": "session_done", "reason": self._done_reason,
+                             "session_id": self.id, "session_number": self.session_number})
 
     async def handle_user_input(self, text: str, target: str = "both") -> None:
         self._log({"kind": "user_input", "actor": "user", "role": "user",
@@ -353,7 +357,8 @@ class Session:
                    "round": self.round,
                    "payload": {"reason": "expired",
                                "detail": f"Session auto-expired after {seconds}s halt"}})
-        self._broadcast({"type": "session_done", "reason": "expired"})
+        self._broadcast({"type": "session_done", "reason": "expired",
+                         "session_id": self.id, "session_number": self.session_number})
         await self.close()
 
     async def resume(self) -> None:

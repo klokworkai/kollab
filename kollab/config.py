@@ -35,6 +35,7 @@ class Config(BaseModel):
     max_tokens_per_session: int | None = None
     port: int = 8765
     sessions_dir: str = "~/.kollab/sessions"
+    session_counter: int = 0
 
     # MCP tool toggles
     mcp_filesystem_enabled: bool = True
@@ -92,6 +93,13 @@ def ensure_mcp_packages() -> None:
               file=sys.stderr)
     else:
         print("[kollab] MCP packages ready.", file=sys.stderr, flush=True)
+
+
+def next_session_number(cfg: Config) -> int:
+    """Atomically increment and persist the session counter. Returns the new number."""
+    cfg.session_counter += 1
+    save_config(cfg)
+    return cfg.session_counter
 
 
 def load_config() -> Config:

@@ -51,19 +51,23 @@ class ClaudeAgent(Agent):
         if self._client is None:
             raise RuntimeError("ClaudeAgent.start() must be called before send()")
         await self._client.query(message)
+        _reasoning_streamed = False  # track whether thinking_delta chunks arrived
         async for msg in self._client.receive_response():
             if isinstance(msg, sdk_types.StreamEvent):
                 chunk = _chunk_from_stream_event(msg.event)
                 if chunk:
+                    if chunk.kind == "reasoning":
+                        _reasoning_streamed = True
                     yield chunk
             elif isinstance(msg, sdk_types.AssistantMessage):
                 # include_partial_messages=True means text was already streamed
                 # live via StreamEvent text_delta chunks. Only emit ThinkingBlock
-                # here — reasoning cannot stream when thinking blocks are present
-                # (SDK constraint) so AssistantMessage is the only delivery path.
-                for block in msg.content:
-                    if isinstance(block, sdk_types.ThinkingBlock):
-                        yield AgentChunk(kind="reasoning", content=block.thinking)
+                # here if reasoning did NOT already arrive via thinking_delta
+                # stream events — when both paths fire the reasoning is duplicated.
+                if not _reasoning_streamed:
+                    for block in msg.content:
+                        if isinstance(block, sdk_types.ThinkingBlock):
+                            yield AgentChunk(kind="reasoning", content=block.thinking)
             elif isinstance(msg, sdk_types.ResultMessage):
                 self._session_id = msg.session_id
                 yield AgentChunk(

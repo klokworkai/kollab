@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .config import Config, load_config, save_config, validate_config
+from .config import Config, load_config, save_config, validate_config, next_session_number
 from .ace import Session, SessionOverrides
 
 app = FastAPI(title="kollab")
@@ -106,9 +106,10 @@ async def start_session(body: StartSessionBody) -> dict:
         claude_model=body.claude_model,
         codex_model=body.codex_model,
     )
-    _session = Session(_cfg, _broadcast, overrides=overrides)
+    _session = Session(_cfg, _broadcast, overrides=overrides,
+                        session_number=next_session_number(_cfg))
     _session_task = asyncio.create_task(_run_session(body.goal))
-    return {"session_id": _session.id}
+    return {"session_id": _session.id, "session_number": _session.session_number}
 
 
 @app.post("/api/session/stop")
@@ -211,12 +212,19 @@ async def list_sessions() -> list[dict]:
                 entry["session_id"] = ev.get("session_id", path.stem)
                 entry["goal"] = ev.get("payload", {}).get("goal", "")
                 entry["started_at"] = ev.get("ts", "")
+                entry["session_number"] = ev.get("payload", {}).get("session_number", 0)
             elif kind == "session_end":
                 entry["end_reason"] = ev.get("payload", {}).get("reason", "")
                 entry["round_count"] = ev.get("round", 0)
         if "session_id" in entry:
             results.append(entry)
     results.sort(key=lambda x: x.get("started_at", ""), reverse=True)
+    # Retroactively assign session numbers to legacy sessions (session_number == 0).
+    # Sort oldest-first, assign 1..N only to those missing a number.
+    unumbered = [r for r in results if not r.get("session_number")]
+    unumbered.sort(key=lambda x: x.get("started_at", ""))
+    for i, r in enumerate(unumbered, start=1):
+        r["session_number"] = i
     return results
 
 
@@ -241,3 +249,179 @@ async def get_session(session_id: str) -> dict:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
     return {"session_id": session_id, "events": events}
+
+
+@app.get("/api/sessions/{session_id}/export")
+async def export_session(session_id: str, session_number: int = 0) -> Any:
+    from fastapi.responses import Response
+    sessions_dir = Path(_cfg.sessions_dir)
+    path = sessions_dir / f"{session_id}.jsonl"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Session not found.")
+    try:
+        events = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    md = _render_export_md(events, session_id, session_number)
+
+    # Derive filename: prefer JSONL payload, fall back to query param
+    sn = 0
+    started_at = ""
+    for ev in events:
+        if ev.get("kind") == "session_start":
+            sn = ev.get("payload", {}).get("session_number", 0) or session_number
+            started_at = ev.get("ts", "")[:10]
+            break
+    if not sn:
+        sn = session_number
+    num_str = str(sn).zfill(3) if sn else "000"
+    date_str = started_at or "unknown"
+    filename = f"kollab-{num_str}-{date_str}.md"
+
+    return Response(
+        content=md,
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _render_export_md(events: list[dict], session_id: str, fallback_session_number: int = 0) -> str:
+    """Render a full-fidelity markdown transcript from a session's JSONL events."""
+    lines: list[str] = []
+
+    goal = ""
+    session_number = 0
+    started_at = ""
+
+    for ev in events:
+        kind = ev.get("kind", "")
+        ts = ev.get("ts", "")
+        ts_short = ts[:19].replace("T", " ") if ts else ""
+
+        if kind == "session_start":
+            goal = ev.get("payload", {}).get("goal", "")
+            session_number = ev.get("payload", {}).get("session_number", 0) or fallback_session_number
+            started_at = ts_short
+            num_label = f"#{session_number}" if session_number else session_id
+            lines.append(f"# koll\u2660b Session Export — {num_label}")
+            lines.append("")
+            lines.append(f"**Session:** {num_label}  ")
+            lines.append(f"**Started:** {started_at}  ")
+            lines.append(f"**Session ID:** `{session_id}`  ")
+            lines.append("")
+            lines.append("## Goal")
+            lines.append("")
+            lines.append(goal)
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+
+        elif kind == "turn_start":
+            actor = ev.get("actor", "")
+            role = ev.get("role", "")
+            turn_id = ev.get("turn_id", "")
+            round_n = ev.get("round", 0)
+            actor_label = "Claude" if actor == "claude" else "Codex"
+            lines.append(f"## {turn_id} — {actor_label} ({role})")
+            lines.append("")
+            lines.append(f"*Round {round_n} · {ts_short}*")
+            lines.append("")
+
+        elif kind == "turn_end":
+            payload = ev.get("payload", {})
+            turn_id = ev.get("turn_id", "")
+            verdict = payload.get("verdict") or ""
+            thread_id = payload.get("thread_id") or ""
+            duration_ms = payload.get("duration_ms") or 0
+            reasoning = payload.get("reasoning") or ""
+            text = payload.get("text") or ""
+
+            if reasoning:
+                lines.append("<details>")
+                lines.append("<summary>Reasoning</summary>")
+                lines.append("")
+                lines.append(reasoning)
+                lines.append("")
+                lines.append("</details>")
+                lines.append("")
+
+            lines.append(text)
+            lines.append("")
+
+            meta_parts = []
+            if verdict:
+                meta_parts.append(f"**Verdict:** {verdict}")
+            if thread_id:
+                meta_parts.append(f"**Thread:** `{thread_id}`")
+            if duration_ms:
+                meta_parts.append(f"**Duration:** {duration_ms}ms")
+            if meta_parts:
+                lines.append(" · ".join(meta_parts))
+                lines.append("")
+            lines.append("---")
+            lines.append("")
+
+        elif kind == "turn_interrupted":
+            payload = ev.get("payload", {})
+            turn_id = ev.get("turn_id", "")
+            thread_id = payload.get("thread_id") or ""
+            reasoning = payload.get("reasoning") or ""
+            text = payload.get("text") or ""
+
+            lines.append("> ⏸ **INTERRUPTED** — partial output below. This turn was not fed back to any agent.")
+            lines.append("")
+
+            if reasoning:
+                lines.append("<details>")
+                lines.append("<summary>Reasoning (partial)</summary>")
+                lines.append("")
+                lines.append(reasoning)
+                lines.append("")
+                lines.append("</details>")
+                lines.append("")
+
+            if text:
+                lines.append(text)
+                lines.append("")
+            else:
+                lines.append("*(no output before interrupt)*")
+                lines.append("")
+
+            if thread_id:
+                lines.append(f"**Thread:** `{thread_id}`")
+                lines.append("")
+            lines.append("---")
+            lines.append("")
+
+        elif kind == "user_input":
+            payload = ev.get("payload", {})
+            target = payload.get("target", "both")
+            text = payload.get("text") or ""
+            target_labels = {"claude": "CLAUDE", "codex": "CODEX", "both": "CLAUDE, CODEX"}
+            target_label = target_labels.get(target, target.upper())
+            lines.append(f"**DIRECTIVE → {target_label}** ·  *{ts_short}*")
+            lines.append("")
+            lines.append(text)
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+
+        elif kind == "session_end":
+            reason = ev.get("payload", {}).get("reason", "")
+            round_n = ev.get("round", 0)
+            reason_labels = {
+                "convergence": "✓ Both agents reached agreement",
+                "round_limit": "⚠ Round limit reached",
+                "token_limit": "⚠ Token budget exhausted",
+                "halted": "⏹ Session halted by user",
+                "expired": "⏳ Session auto-expired",
+            }
+            lines.append("## Session End")
+            lines.append("")
+            lines.append(f"**Reason:** {reason_labels.get(reason, reason)}  ")
+            lines.append(f"**Final round:** {round_n}  ")
+            lines.append(f"**Ended:** {ts_short}  ")
+            lines.append("")
+
+    return "\n".join(lines)

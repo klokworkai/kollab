@@ -149,7 +149,7 @@ const TABS_KEY = 'kollab_open_tabs';
 function saveOpenTabs() {
   const persistable = tabs
     .filter(t => t.sessionId && t.state !== 'active')
-    .map(t => ({ sessionId: t.sessionId, goal: t.goal, state: t.state }));
+    .map(t => ({ sessionId: t.sessionId, goal: t.goal, state: t.state, sessionNumber: t.sessionNumber || 0 }));
   localStorage.setItem(TABS_KEY, JSON.stringify(persistable));
 }
 
@@ -162,7 +162,7 @@ async function restoreOpenTabs() {
       const res = await fetch(`/api/sessions/${entry.sessionId}`);
       if (!res.ok) continue;
       const data = await res.json();
-      const tab = createTab(entry.goal || entry.sessionId, entry.sessionId, 'readonly');
+      const tab = createTab(entry.goal || entry.sessionId, entry.sessionId, 'readonly', entry.sessionNumber || 0);
       // Write directly into tab._nodes — do NOT touch the live dialogue DOM.
       // appendToActiveTab() would clobber whatever is currently displayed.
       reconstructSessionIntoTab(tab, data.events);
@@ -187,10 +187,11 @@ function getTabBySessionId(sessionId) {
   return tabs.find(t => t.sessionId === sessionId) || null;
 }
 
-function createTab(goal, sessionId, state) {
+function createTab(goal, sessionId, state, sessionNumber) {
   const tab = {
     id: makeTabId(),
     sessionId: sessionId || null,
+    sessionNumber: sessionNumber || 0,
     goal: goal || '',
     state: state || 'active',
     turnsEl: document.createDocumentFragment(),
@@ -264,8 +265,10 @@ function renderTabBar() {
   if (countEl) countEl.textContent = tabs.length > 0 ? `${tabs.length}` : '';
 
   for (const tab of tabs) {
+    const numPrefix = tab.sessionNumber ? `#${tab.sessionNumber} · ` : '';
     const label = (tab.state === 'readonly' ? '[readonly] ' : '')
-      + (tab.goal ? tab.goal.slice(0, 40) + (tab.goal.length > 40 ? '\u2026' : '') : 'New session');
+      + numPrefix
+      + (tab.goal ? tab.goal.slice(0, 35) + (tab.goal.length > 35 ? '\u2026' : '') : 'New session');
 
     const el = document.createElement('div');
     el.className = 'kollab-tab flex items-center gap-1 px-3 py-2 text-xs cursor-pointer border-r border-white/10 whitespace-nowrap shrink-0 transition '
@@ -456,6 +459,18 @@ function buildTurnCard(msg) {
   const card = document.createElement('div');
   card.id = `turn-${msg.turn_id}`;
   card.className = `rounded-lg border ${accentBorder} ${accentBg} p-3 flex flex-col gap-2`;
+
+  const reasoningBlock = isClaude
+    ? `<details id="reasoning-${msg.turn_id}" class="text-muted text-xs hidden">
+        <summary class="cursor-pointer hover:text-user select-none">Reasoning</summary>
+        <pre id="reasoning-body-${msg.turn_id}" class="whitespace-pre-wrap mt-1 pl-2"></pre>
+      </details>`
+    : `<div id="reasoning-${msg.turn_id}" class="text-muted text-xs hidden">
+        <div class="select-none mb-1">Reasoning</div>
+        <pre id="reasoning-body-${msg.turn_id}" class="whitespace-pre-wrap mt-1 pl-2"></pre>
+        <div class="text-xs text-muted opacity-40 italic mt-1">Reasoning streaming not supported by Codex CLI</div>
+      </div>`;
+
   card.innerHTML = `
     <div class="flex items-center gap-2 text-xs">
       <button id="collapse-${msg.turn_id}" class="text-muted text-base opacity-30 cursor-not-allowed transition-transform select-none" title="Collapse" disabled>&#8250;</button>
@@ -465,10 +480,7 @@ function buildTurnCard(msg) {
       <span id="verdict-${msg.turn_id}" ${msg.turn_id === 'C-1' ? 'class="text-xs px-1.5 py-0.5 rounded font-bold text-muted bg-white/10"' : ''}>${msg.turn_id === 'C-1' ? 'PROPOSAL' : ''}</span>
     </div>
     <div id="collapsible-body-${msg.turn_id}" class="flex flex-col gap-2">
-      <details id="reasoning-${msg.turn_id}" class="text-muted text-xs hidden">
-        <summary class="cursor-pointer hover:text-user select-none">Reasoning</summary>
-        <pre id="reasoning-body-${msg.turn_id}" class="whitespace-pre-wrap mt-1 pl-2"></pre>
-      </details>
+      ${reasoningBlock}
       <details id="result-${msg.turn_id}" open>
         <summary class="cursor-pointer hover:text-user text-xs text-muted select-none">Result</summary>
         <pre id="body-${msg.turn_id}" class="whitespace-pre-wrap text-user thinking mt-1">\u2026</pre>
@@ -551,11 +563,11 @@ function onTurnChunk(msg) {
       body.textContent += msg.content;
     }
   } else if (msg.kind === 'reasoning') {
-    const details = document.getElementById(`reasoning-${msg.turn_id}`);
+    const reasoningEl = document.getElementById(`reasoning-${msg.turn_id}`);
     const pre = document.getElementById(`reasoning-body-${msg.turn_id}`);
-    if (details && pre) {
-      details.classList.remove('hidden');
-      details.open = true;
+    if (reasoningEl && pre) {
+      reasoningEl.classList.remove('hidden');
+      if (reasoningEl.tagName === 'DETAILS') reasoningEl.open = true;
       pre.textContent += msg.content;
     }
   }
@@ -605,11 +617,31 @@ function onState(msg) {
 
   const tab = activeTab();
   if (tab) {
+    // Capture session_number from fanning_out broadcast (first state event for a new session)
+    if (msg.state === 'fanning_out' && msg.session_number) {
+      tab.sessionNumber = msg.session_number;
+      tab.sessionId = tab.sessionId || msg.session_id || null;
+      // Update goal card number label now that we have it
+      const goalNumEl = document.getElementById('goal-session-num');
+      if (goalNumEl) goalNumEl.textContent = `Session #${msg.session_number}`;
+      renderTabBar();
+    }
     if (msg.state === 'halted') tab.state = 'halted';
     else if (msg.state === 'done') tab.state = 'done';
     else if (sessionRunning) tab.state = 'active';
     updateInputStrip(tab);
   }
+}
+
+function buildExportButton(sessionId, sessionNumber) {
+  const numStr = sessionNumber ? String(sessionNumber).padStart(3, '0') : '000';
+  const today = new Date().toISOString().slice(0, 10);
+  const btn = document.createElement('a');
+  btn.href = `/api/sessions/${sessionId}/export${sessionNumber ? `?session_number=${sessionNumber}` : ''}`;
+  btn.download = `kollab-${numStr}-${today}.md`;
+  btn.className = 'text-xs text-muted hover:text-user border border-white/20 rounded px-2 py-1 transition';
+  btn.textContent = '\u2193 Export .md';
+  return btn;
 }
 
 function onSessionDone(msg) {
@@ -620,12 +652,34 @@ function onSessionDone(msg) {
     halted:      '\u23f9 Session halted.',
     expired:     '\u23f3 Stopped / expired.',
   };
+  const tab = activeTab();
+
+  // Defense in depth: if onState/fanning_out or the POST /api/session
+  // response did not populate these (race conditions on fast sessions),
+  // trust the session_done payload — backend always has both fields.
+  if (tab) {
+    if (msg.session_id && !tab.sessionId) tab.sessionId = msg.session_id;
+    if (msg.session_number && !tab.sessionNumber) tab.sessionNumber = msg.session_number;
+  }
+
+  console.log('[session_done]', {
+    tabId: tab?.id,
+    sessionId: tab?.sessionId,
+    sessionNumber: tab?.sessionNumber,
+    msgSessionId: msg.session_id,
+    msgSessionNumber: msg.session_number,
+  });
+
   const banner = document.createElement('div');
-  banner.className = 'rounded-lg border border-white/20 bg-userPanel px-4 py-3 text-center text-muted';
-  banner.textContent = reasons[msg.reason] || `Session ended: ${msg.reason}`;
+  banner.className = 'rounded-lg border border-white/20 bg-userPanel px-4 py-3 text-center text-muted flex flex-col items-center gap-2';
+  const reasonSpan = document.createElement('span');
+  reasonSpan.textContent = reasons[msg.reason] || `Session ended: ${msg.reason}`;
+  banner.appendChild(reasonSpan);
+  if (tab && tab.sessionId) {
+    banner.appendChild(buildExportButton(tab.sessionId, tab.sessionNumber));
+  }
   appendToActiveTab(banner);
 
-  const tab = activeTab();
   if (tab) tab.state = 'done';
 
   btnStop.classList.add('hidden');
@@ -853,7 +907,10 @@ document.getElementById('btn-modal-start').addEventListener('click', async () =>
   const goalCard = document.createElement('div');
   goalCard.className = 'rounded-lg border border-white/10 bg-userPanel p-3 flex flex-col gap-1';
   goalCard.innerHTML = `
-    <div class="text-xs text-muted uppercase">goal</div>
+    <div class="flex items-center justify-between">
+      <div class="text-xs text-muted uppercase">goal</div>
+      <span id="goal-session-num" class="text-xs text-muted opacity-50"></span>
+    </div>
     <pre class="whitespace-pre-wrap text-user">${escHtml(goal)}</pre>
   `;
   appendToActiveTab(goalCard);
@@ -872,6 +929,7 @@ document.getElementById('btn-modal-start').addEventListener('click', async () =>
   if (res.ok) {
     const data = await res.json();
     tab.sessionId = data.session_id;
+    // session_number is set from the fanning_out WS broadcast
   } else if (res.status === 409) {
     removeWaitingMsg();
     closeTab(tab.id);
@@ -1082,7 +1140,8 @@ function renderHistoryList(sessions) {
 
     const goalEl = document.createElement('span');
     goalEl.className = 'text-xs text-user truncate pr-5';
-    goalEl.textContent = (s.goal || '').slice(0, 40) + ((s.goal || '').length > 40 ? '\u2026' : '');
+    const numPrefix = s.session_number ? `#${s.session_number} · ` : '';
+    goalEl.textContent = numPrefix + (s.goal || '').slice(0, 40) + ((s.goal || '').length > 40 ? '\u2026' : '');
 
     const metaEl = document.createElement('span');
     metaEl.className = 'text-xs text-muted flex items-center gap-1';
@@ -1110,7 +1169,7 @@ function renderHistoryList(sessions) {
     row.appendChild(goalEl);
     row.appendChild(metaEl);
     row.appendChild(delBtn);
-    row.addEventListener('click', () => openHistorySession(s.session_id, s.goal));
+    row.addEventListener('click', () => openHistorySession(s.session_id, s.goal, s.session_number));
     historyList.appendChild(row);
   }
 }
@@ -1145,7 +1204,7 @@ function relativeTime(isoStr) {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-async function openHistorySession(sessionId, goal) {
+async function openHistorySession(sessionId, goal, sessionNumber) {
   const existing = getTabBySessionId(sessionId);
   if (existing) { switchTab(existing.id); return; }
 
@@ -1159,7 +1218,7 @@ async function openHistorySession(sessionId, goal) {
     return;
   }
 
-  const tab = createTab(goal || sessionId, sessionId, 'readonly');
+  const tab = createTab(goal || sessionId, sessionId, 'readonly', sessionNumber || 0);
   switchTab(tab.id);
   stickyBottom = false;
   reconstructSession(tab, data.events);
@@ -1174,35 +1233,49 @@ async function openHistorySession(sessionId, goal) {
 // Background restore: write into tab._nodes only, never touch live DOM.
 function reconstructSessionIntoTab(tab, events) {
   const readonlyBanner = document.createElement('div');
-  readonlyBanner.className = 'rounded border border-white/10 bg-userPanel px-4 py-2 text-center text-muted text-xs';
-  readonlyBanner.textContent = 'This session is complete. Read-only view.';
+  readonlyBanner.className = 'rounded border border-white/10 bg-userPanel px-4 py-2 text-muted text-xs flex items-center justify-between';
+  const bannerText = document.createElement('span');
+  bannerText.textContent = 'This session is complete. Read-only view.';
+  readonlyBanner.appendChild(bannerText);
+  if (tab.sessionId) readonlyBanner.appendChild(buildExportButton(tab.sessionId, tab.sessionNumber));
   appendNodeToTab(tab, readonlyBanner);
-  _reconstructEvents(events, node => appendNodeToTab(tab, node));
+  _reconstructEvents(events, node => appendNodeToTab(tab, node), tab.sessionNumber);
 }
 
 // Foreground open: write into active tab via appendToActiveTab (touches live DOM).
 function reconstructSession(tab, events) {
   const readonlyBanner = document.createElement('div');
-  readonlyBanner.className = 'rounded border border-white/10 bg-userPanel px-4 py-2 text-center text-muted text-xs';
-  readonlyBanner.textContent = 'This session is complete. Read-only view.';
+  readonlyBanner.className = 'rounded border border-white/10 bg-userPanel px-4 py-2 text-muted text-xs flex items-center justify-between';
+  const bannerText = document.createElement('span');
+  bannerText.textContent = 'This session is complete. Read-only view.';
+  readonlyBanner.appendChild(bannerText);
+  if (tab.sessionId) readonlyBanner.appendChild(buildExportButton(tab.sessionId, tab.sessionNumber));
   appendToActiveTab(readonlyBanner);
-  _reconstructEvents(events, node => appendToActiveTab(node));
+  _reconstructEvents(events, node => appendToActiveTab(node), tab.sessionNumber);
 }
 
 // Core reconstruction logic. appendFn adds a node wherever appropriate.
 // Maintains a local cardMap so turn_end/turn_interrupted can find their card
 // without relying on document.getElementById (which fails for off-DOM nodes).
-function _reconstructEvents(events, appendFn) {
+function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
   const cardMap = {}; // turn_id -> card DOM node
+  let _sessionId = null;
+  let _sessionNumber = fallbackSessionNumber || 0;
 
   for (const ev of events) {
     const kind = ev.kind;
 
     if (kind === 'session_start') {
+      const sessionNum = ev.payload?.session_number || fallbackSessionNumber || 0;
+      _sessionId = ev.session_id || null;
+      _sessionNumber = sessionNum;
       const goalCard = document.createElement('div');
       goalCard.className = 'rounded-lg border border-white/10 bg-userPanel p-3 flex flex-col gap-1';
       goalCard.innerHTML = `
-        <div class="text-xs text-muted uppercase">goal</div>
+        <div class="flex items-center justify-between">
+          <div class="text-xs text-muted uppercase">goal</div>
+          ${sessionNum ? `<span class="text-xs text-muted opacity-50">Session #${sessionNum}</span>` : ''}
+        </div>
         <pre class="whitespace-pre-wrap text-user">${escHtml(ev.payload?.goal || '')}</pre>
       `;
       appendFn(goalCard);
@@ -1226,9 +1299,13 @@ function _reconstructEvents(events, appendFn) {
 
       // populate reasoning
       if (ev.payload?.reasoning) {
-        const details = card ? card.querySelector(`#reasoning-${ev.turn_id}`) : null;
+        const reasoningEl = card ? card.querySelector(`#reasoning-${ev.turn_id}`) : null;
         const pre = card ? card.querySelector(`#reasoning-body-${ev.turn_id}`) : null;
-        if (details && pre) { details.classList.remove('hidden'); details.open = true; pre.textContent = ev.payload.reasoning; }
+        if (reasoningEl && pre) {
+          reasoningEl.classList.remove('hidden');
+          if (reasoningEl.tagName === 'DETAILS') reasoningEl.open = true;
+          pre.textContent = ev.payload.reasoning;
+        }
       }
 
       // badge
@@ -1277,8 +1354,11 @@ function _reconstructEvents(events, appendFn) {
       };
       const reason = ev.payload?.reason || '';
       const banner = document.createElement('div');
-      banner.className = 'rounded-lg border border-white/20 bg-userPanel px-4 py-3 text-center text-muted';
-      banner.textContent = reasons[reason] || `Session ended: ${reason}`;
+      banner.className = 'rounded-lg border border-white/20 bg-userPanel px-4 py-3 text-center text-muted flex flex-col items-center gap-2';
+      const reasonSpan = document.createElement('span');
+      reasonSpan.textContent = reasons[reason] || `Session ended: ${reason}`;
+      banner.appendChild(reasonSpan);
+      if (_sessionId) banner.appendChild(buildExportButton(_sessionId, _sessionNumber));
       appendFn(banner);
     }
   }
