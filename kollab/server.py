@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import sys
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,44 @@ _cfg: Config = load_config()
 _session: Session | None = None
 _ws_clients: list[WebSocket] = []
 _session_task: asyncio.Task | None = None
+
+_LOG_PATH = Path("~/.kollab/kollab.log").expanduser()
+_file_handler: logging.FileHandler | None = None
+_kollab_logger = logging.getLogger("kollab")
+
+
+def _apply_logging(cfg: Config) -> None:
+    """Configure or tear down file logging based on current config."""
+    global _file_handler
+    logger = _kollab_logger
+
+    # Remove existing file handler first
+    if _file_handler is not None:
+        logger.removeHandler(_file_handler)
+        _file_handler.close()
+        _file_handler = None
+
+    if not cfg.logging_enabled:
+        logger.setLevel(logging.WARNING)  # effectively silent
+        return
+
+    level = logging.DEBUG if cfg.logging_level == "debug" else logging.INFO
+    logger.setLevel(level)
+
+    _LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(_LOG_PATH, encoding="utf-8")
+    handler.setLevel(level)
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S",
+    ))
+    logger.addHandler(handler)
+    _file_handler = handler
+    logger.info("Logging started (level=%s, file=%s)", cfg.logging_level, _LOG_PATH)
+
+
+# Apply logging on startup from loaded config
+_apply_logging(_cfg)
 
 
 # ------------------------------------------------------------------ broadcast
@@ -75,6 +114,7 @@ async def post_config(body: ConfigUpdate) -> dict:
         return {"ok": False, "errors": errors}
     save_config(updated)
     _cfg = updated
+    _apply_logging(_cfg)
     return {"ok": True}
 
 

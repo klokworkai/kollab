@@ -46,6 +46,10 @@ class Config(BaseModel):
     # UI theme
     theme: str = "dark"  # 'dark' | 'light'
 
+    # Logging
+    logging_enabled: bool = False
+    logging_level: str = "info"  # 'info' | 'debug'
+
     # Halt timeout: auto-expire halted sessions after this many seconds (0 = never)
     halt_timeout_secs: int = 1800
 

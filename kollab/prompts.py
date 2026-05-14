@@ -43,12 +43,13 @@ They may interrupt at any time.\
 """
 
 TURN_PROMPT_TEMPLATE = """\
-[Round {round}] Your peer ({peer_name}) just said:
+[Round {round}]{user_injection}
+Your peer ({peer_name}) just said:
 
 ---
 {peer_last_text}
 ---
-{user_injection}
+
 Respond per your role. End with a <verdict> trailer.\
 """
 
@@ -59,7 +60,7 @@ def build_turn_prompt(
     user_injection: str = "",
     resume_after_halt: bool = False,
 ) -> str:
-    injection_block = f"\n[user]: {user_injection}\n" if user_injection else ""
+    injection_block = f" [User directive — address this first]: {user_injection}\n" if user_injection else ""
     body = TURN_PROMPT_TEMPLATE.format(
         round=round_num,
         peer_name=peer_name,
@@ -92,7 +93,7 @@ def build_first_turn_prompt(goal: str, user_injection: str = "",
     Used both at session start and on resume when the very first turn was
     interrupted before any peer turn happened.
     """
-    injection_block = f"\n[user]: {user_injection}\n" if user_injection else ""
+    injection_block = f"\n[User directive — address this first]: {user_injection}\n" if user_injection else ""
     body = (
         f"[Round 1] {goal}\n{injection_block}\n"
         f"Produce your initial proposal. Do NOT include a <verdict> trailer on this first turn — "

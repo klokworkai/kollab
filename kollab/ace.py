@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
@@ -19,6 +20,8 @@ from .prompts import (
 from .transcript import TranscriptLog
 
 _VERDICT_RE = re.compile(r"<verdict>\s*(AGREE|DISAGREE|REVISED)\s*</verdict>", re.I)
+
+log = logging.getLogger("kollab.ace")
 
 Verdict = Literal["AGREE", "DISAGREE", "REVISED"]
 SessionState = Literal[
@@ -64,7 +67,6 @@ class Session:
         self.round: int = 0
         self.turns: list[Turn] = []
         self.state: SessionState = "idle"
-        self.consecutive_agrees: int = 0  # kept for broadcast compat; convergence now driven by Codex AGREE alone
         self._cfg = cfg
         self._broadcast = broadcast
         self._round_limit: int = ov.round_limit if ov.round_limit is not None else cfg.round_limit
@@ -93,8 +95,10 @@ class Session:
         # Completed (non-interrupted) turn counts — drive round numbering.
         self._claude_completed: int = 0
         self._codex_completed: int = 0
-        self._pending_user_input: str = ""
-        self._pending_user_input_target: str = "both"  # 'claude' | 'codex' | 'both'
+        # Per-actor directive queues. Each entry is a string directive.
+        # Keyed by 'claude' or 'codex'. Directives sent to 'both' are written
+        # into both queues. Multiple directives accumulate instead of overwriting.
+        self._pending_directives: dict[str, list[str]] = {"claude": [], "codex": []}
         self._halt_requested: bool = False
         self._done_reason: str = ""
         self._halt_timeout_secs: int = cfg.halt_timeout_secs
@@ -113,10 +117,11 @@ class Session:
         self.goal = goal
         sessions_dir = Path(self._cfg.sessions_dir).expanduser()
         self._transcript = TranscriptLog(self.id, sessions_dir)
+        log.info("session_start id=%s number=%s goal=%r", self.id, self.session_number, goal[:80])
         self._log({"kind": "session_start", "actor": "system", "role": "system",
                    "round": 0, "payload": {"goal": goal, "session_number": self.session_number}})
         self._broadcast({"type": "state", "state": "fanning_out", "round": 0,
-                         "consecutive_agrees": 0, "session_number": self.session_number,
+                         "session_number": self.session_number,
                          "session_id": self.id})
         self.state = "fanning_out"
         await asyncio.gather(
@@ -124,8 +129,7 @@ class Session:
             self._codex.start(SYSTEM_CRITIC, goal),
         )
         self.state = "claude_turn"
-        self._broadcast({"type": "state", "state": "claude_turn", "round": 1,
-                         "consecutive_agrees": 0})
+        self._broadcast({"type": "state", "state": "claude_turn", "round": 1})
 
     async def run_turn(self) -> None:
         if self.state not in ("claude_turn", "codex_turn"):
@@ -151,27 +155,17 @@ class Session:
 
         turn = Turn(id=turn_id, actor=actor, role=role, round=self.round)
         self.turns.append(turn)
+        log.info("turn_start %s actor=%s round=%d", turn_id, actor, self.round)
         self._log({"kind": "turn_start", "turn_id": turn_id, "actor": actor,
                    "role": role, "round": self.round, "payload": {}})
         self._broadcast({"type": "turn_start", "turn_id": turn_id,
                          "actor": actor, "role": role, "round": self.round})
 
         # ------ build prompt ------
-        # Determine and consume any pending user directive that targets this
-        # actor. Same-as-before semantics: if target is 'both', the first
-        # consuming agent flips it to the peer so both see it once.
-        user_injection = self._pending_user_input
-        if user_injection:
-            target = self._pending_user_input_target
-            if target not in (actor, "both"):
-                user_injection = ""  # not for this agent — leave pending
-            else:
-                if target == "both":
-                    peer_actor = "codex" if is_claude else "claude"
-                    self._pending_user_input_target = peer_actor
-                else:
-                    self._pending_user_input = ""
-                    self._pending_user_input_target = "both"
+        # Consume all pending directives for this actor and concatenate them.
+        queue = self._pending_directives[actor]
+        user_injection = "\n".join(queue) if queue else ""
+        self._pending_directives[actor] = []
 
         resume_after_halt = self._resume_after_halt
         # Whether or not we use the resume prefix on this turn, we consume
@@ -216,10 +210,12 @@ class Session:
                 interrupted_mid_stream = True
                 if not interrupt_signaled:
                     interrupt_signaled = True
+                    log.info("turn_interrupt_signal %s actor=%s", turn_id, actor)
                     try:
                         await agent.interrupt()
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        log.warning("interrupt() raised: %s", exc)
+                log.debug("drain chunk kind=%s turn=%s", chunk.kind, turn_id)
                 continue  # drain remaining chunks but ignore them
 
             if chunk.kind == "text":
@@ -255,6 +251,7 @@ class Session:
         # ------ interrupted path ------
         if self.state == "halted" and interrupted_mid_stream:
             turn.interrupted = True
+            log.info("turn_interrupted %s actor=%s partial_len=%d", turn_id, actor, len(turn.text))
             # Keep the turn in self.turns as a permanent observable artifact.
             # Do NOT pop, do NOT decrement counters — turn IDs must remain
             # stable. Completed counters are NOT incremented (per spec, this
@@ -267,8 +264,7 @@ class Session:
             # Inform UI: turn_cancel decorates the partial card; state goes halted.
             self._broadcast({"type": "turn_cancel", "turn_id": turn_id})
             self._broadcast({"type": "state", "state": "halted",
-                             "round": self.round,
-                             "consecutive_agrees": self.consecutive_agrees})
+                             "round": self.round})
             return
 
         # ------ normal completion ------
@@ -276,6 +272,8 @@ class Session:
         duration_ms = int(
             (turn.ended_at - turn.started_at).total_seconds() * 1000
         )
+        log.info("turn_end %s actor=%s verdict=%s duration_ms=%d tokens_in=%d tokens_out=%d",
+                 turn_id, actor, turn.verdict, duration_ms, turn_tokens_in, turn_tokens_out)
         if is_claude:
             self._claude_completed += 1
         else:
@@ -294,14 +292,13 @@ class Session:
             # Clean halt that arrived between chunks but after the stream
             # ended naturally — treat as not-interrupted.
             self._broadcast({"type": "state", "state": "halted",
-                             "round": self.round, "consecutive_agrees": self.consecutive_agrees})
+                             "round": self.round})
             return
 
         # convergence tracking
         # Codex is the critic — a Codex AGREE means the debate is over,
         # regardless of what Claude said. No need for Claude to acknowledge.
         if not is_claude and turn.verdict == "AGREE":
-            self.consecutive_agrees += 1  # will be 1; kept for UI broadcast
             self._done_reason = "convergence"
             self.state = "done"
         elif self._max_tokens_per_session and self._session_tokens >= self._max_tokens_per_session:
@@ -311,14 +308,10 @@ class Session:
             self._done_reason = "round_limit"
             self.state = "done"
         else:
-            if turn.verdict == "AGREE":
-                self.consecutive_agrees += 1
-            else:
-                self.consecutive_agrees = 0
             self.state = "codex_turn" if is_claude else "claude_turn"
 
         self._broadcast({"type": "state", "state": self.state,
-                         "round": self.round, "consecutive_agrees": self.consecutive_agrees})
+                         "round": self.round})
         if self.state == "done":
             self._log({"kind": "session_end", "actor": "system", "role": "system",
                        "round": self.round, "payload": {"reason": self._done_reason}})
@@ -328,10 +321,14 @@ class Session:
     async def handle_user_input(self, text: str, target: str = "both") -> None:
         self._log({"kind": "user_input", "actor": "user", "role": "user",
                    "round": self.round, "payload": {"text": text, "target": target}})
-        self._pending_user_input = text
-        self._pending_user_input_target = target
+        # Accumulate into per-actor queues. 'both' fans out to each queue.
+        if target in ("claude", "both"):
+            self._pending_directives["claude"].append(text)
+        if target in ("codex", "both"):
+            self._pending_directives["codex"].append(text)
 
     def stop(self) -> None:
+        log.info("session_stop id=%s state=%s", self.id, self.state)
         self.state = "halted"
         self._halt_requested = True
         # cancel any existing timer first
@@ -364,6 +361,7 @@ class Session:
     async def resume(self) -> None:
         if self.state != "halted":
             return
+        log.info("session_resume id=%s interrupted_agent=%s", self.id, self._interrupted_agent)
         # cancel halt timer
         if self._halt_timer_task and not self._halt_timer_task.done():
             self._halt_timer_task.cancel()
@@ -386,7 +384,7 @@ class Session:
                 self.state = "claude_turn"
 
         self._broadcast({"type": "state", "state": self.state,
-                         "round": self.round, "consecutive_agrees": self.consecutive_agrees})
+                         "round": self.round})
 
     async def close(self) -> None:
         if self._halt_timer_task and not self._halt_timer_task.done():

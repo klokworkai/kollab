@@ -266,8 +266,7 @@ function renderTabBar() {
 
   for (const tab of tabs) {
     const numPrefix = tab.sessionNumber ? `#${tab.sessionNumber} · ` : '';
-    const label = (tab.state === 'readonly' ? '[readonly] ' : '')
-      + numPrefix
+    const label = numPrefix
       + (tab.goal ? tab.goal.slice(0, 35) + (tab.goal.length > 35 ? '\u2026' : '') : 'New session');
 
     const el = document.createElement('div');
@@ -465,10 +464,9 @@ function buildTurnCard(msg) {
         <summary class="cursor-pointer hover:text-user select-none">Reasoning</summary>
         <pre id="reasoning-body-${msg.turn_id}" class="whitespace-pre-wrap mt-1 pl-2"></pre>
       </details>`
-    : `<div id="reasoning-${msg.turn_id}" class="text-muted text-xs hidden">
-        <div class="select-none mb-1">Reasoning</div>
-        <pre id="reasoning-body-${msg.turn_id}" class="whitespace-pre-wrap mt-1 pl-2"></pre>
-        <div class="text-xs text-muted opacity-40 italic mt-1">Reasoning streaming not supported by Codex CLI</div>
+    : `<div id="reasoning-${msg.turn_id}" class="text-muted text-xs">
+        <span class="select-none">Reasoning</span>
+        <pre id="reasoning-body-${msg.turn_id}" class="whitespace-pre-wrap mt-1 pl-2 opacity-40 italic">Reasoning streaming not supported by Codex CLI</pre>
       </div>`;
 
   card.innerHTML = `
@@ -645,12 +643,26 @@ function buildExportButton(sessionId, sessionNumber) {
 }
 
 function onSessionDone(msg) {
-  const reasons = {
+  const reasonsFull = {
     convergence: '\u2713 Both agents reached agreement.',
     round_limit: '\u26a0 Round limit reached.',
     token_limit: '\u26a0 Token budget exhausted.',
     halted:      '\u23f9 Session halted.',
     expired:     '\u23f3 Stopped / expired.',
+  };
+  const reasonsShort = {
+    convergence: '\u2713 Converged',
+    round_limit: '\u26a0 Round limit',
+    token_limit: '\u26a0 Token limit',
+    halted:      '\u23f9 Halted',
+    expired:     '\u23f3 Expired',
+  };
+  const verdictColors = {
+    convergence: 'text-verdictAgree',
+    round_limit: 'text-verdictRevised',
+    token_limit: 'text-verdictRevised',
+    halted: 'text-muted',
+    expired: 'text-muted',
   };
   const tab = activeTab();
 
@@ -662,22 +674,34 @@ function onSessionDone(msg) {
     if (msg.session_number && !tab.sessionNumber) tab.sessionNumber = msg.session_number;
   }
 
-  console.log('[session_done]', {
-    tabId: tab?.id,
-    sessionId: tab?.sessionId,
-    sessionNumber: tab?.sessionNumber,
-    msgSessionId: msg.session_id,
-    msgSessionNumber: msg.session_number,
-  });
-
-  const banner = document.createElement('div');
-  banner.className = 'rounded-lg border border-white/20 bg-userPanel px-4 py-3 text-center text-muted flex flex-col items-center gap-2';
-  const reasonSpan = document.createElement('span');
-  reasonSpan.textContent = reasons[msg.reason] || `Session ended: ${msg.reason}`;
-  banner.appendChild(reasonSpan);
-  if (tab && tab.sessionId) {
-    banner.appendChild(buildExportButton(tab.sessionId, tab.sessionNumber));
+  // Update live goal card: inject verdict pill + read-only label + export
+  const goalNumEl = document.getElementById('goal-session-num');
+  if (goalNumEl) {
+    const parent = goalNumEl.parentElement;
+    // Replace the plain session-num span with a flex row of chips
+    const metaRow = document.createElement('div');
+    metaRow.className = 'flex items-center gap-2';
+    goalNumEl.className = 'text-xs text-muted opacity-50';
+    metaRow.appendChild(goalNumEl.cloneNode(true));
+    const pill = document.createElement('span');
+    pill.className = `text-xs px-1.5 py-0.5 rounded font-bold ${verdictColors[msg.reason] || 'text-muted'} bg-white/10`;
+    pill.textContent = reasonsShort[msg.reason] || msg.reason;
+    metaRow.appendChild(pill);
+    const roLabel = document.createElement('span');
+    roLabel.className = 'text-xs text-muted opacity-50';
+    roLabel.textContent = 'read-only';
+    metaRow.appendChild(roLabel);
+    if (tab && tab.sessionId) metaRow.appendChild(buildExportButton(tab.sessionId, tab.sessionNumber));
+    parent.replaceChild(metaRow, goalNumEl);
   }
+
+  // Bottom banner: reason text + export button
+  const banner = document.createElement('div');
+  banner.className = 'rounded-lg border border-white/20 bg-userPanel px-4 py-3 text-center text-muted flex items-center justify-center gap-3';
+  const bannerText = document.createElement('span');
+  bannerText.textContent = reasonsFull[msg.reason] || `Session ended: ${msg.reason}`;
+  banner.appendChild(bannerText);
+  if (tab && tab.sessionId) banner.appendChild(buildExportButton(tab.sessionId, tab.sessionNumber));
   appendToActiveTab(banner);
 
   if (tab) tab.state = 'done';
@@ -961,37 +985,15 @@ document.getElementById('btn-shutdown-yes').addEventListener('click', async () =
 
 // ------------------------------------------------------------------ configure modal
 
-const configFields = [
-  { key: 'claude_binary',          label: 'Claude binary path' },
-  { key: 'claude_model',           label: 'Claude model',  type: 'select', agentKey: 'claude' },
-  { key: 'claude_workdir',         label: 'Claude working dir' },
-  { key: 'codex_binary',           label: 'Codex binary path' },
-  { key: 'codex_model',            label: 'Codex model',   type: 'select', agentKey: 'codex' },
-  { key: 'codex_workdir',          label: 'Codex working dir' },
-  { key: 'round_limit',            label: 'Round limit',   type: 'number' },
-  { key: 'halt_timeout_secs',      label: 'Halt timeout (seconds, 0 = never)', type: 'number' },
-  { key: 'port',                   label: 'Port',          type: 'number' },
-  { key: 'sessions_dir',           label: 'Sessions dir' },
-  { key: '_mcp_sep',               label: 'MCP Tools',     type: 'section' },
-  { key: 'mcp_filesystem_enabled', label: 'Filesystem MCP enabled', type: 'checkbox' },
-  { key: 'mcp_filesystem_paths',   label: 'Filesystem allowed paths (one per line)', type: 'textarea' },
-  { key: '_github_coming_soon',    label: 'GitHub MCP — coming soon', type: 'section' },
-];
-
 document.getElementById('btn-configure').addEventListener('click', async () => {
   const res = await fetch('/api/config');
   const cfg = await res.json();
   const form = document.getElementById('config-form');
   form.innerHTML = '';
-  form.className = 'grid grid-cols-2 gap-x-4 gap-y-3';
-  for (const f of configFields) {
-    if (f.type === 'section') {
-      const sep = document.createElement('div');
-      sep.className = 'col-span-2 border-t border-white/10 pt-3 mt-1';
-      sep.innerHTML = `<p class="text-xs text-muted uppercase tracking-wider">${f.label}</p>`;
-      form.appendChild(sep);
-      continue;
-    }
+  form.className = 'flex flex-col gap-4';
+
+  // ---- helper: build a single label+input field ----
+  function makeField(f, targetEl) {
     const label = document.createElement('label');
     label.className = 'flex flex-col gap-1 text-xs text-muted';
     label.textContent = f.label;
@@ -1006,31 +1008,16 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
         if (cfg[f.key] === m.model) o.selected = true;
         input.appendChild(o);
       }
-    } else if (f.type === 'checkbox') {
-      const wrapper = document.createElement('div');
-      wrapper.className = 'flex items-center gap-2 mt-1';
-      input = document.createElement('input');
-      input.type = 'checkbox';
-      input.className = 'w-4 h-4 accent-claude';
-      input.checked = !!cfg[f.key];
-      wrapper.appendChild(input);
-      input.name = f.key;
-      label.appendChild(wrapper);
-      form.appendChild(label);
-      continue;
-    } else if (f.type === 'textarea') {
-      input = document.createElement('textarea');
-      input.rows = 3;
-      input.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none font-mono text-xs';
-      input.value = Array.isArray(cfg[f.key]) ? cfg[f.key].join('\n') : (cfg[f.key] || '');
-      input.placeholder = 'Leave empty to use agent workdir';
-      label.className += ' col-span-2';
-    } else if (f.type === 'password') {
-      input = document.createElement('input');
-      input.type = 'password';
-      input.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none';
-      input.value = cfg[f.key] ?? '';
-      input.placeholder = 'GitHub personal access token';
+    } else if (f.type === 'logging_level') {
+      input = document.createElement('select');
+      input.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none disabled:opacity-40';
+      for (const [val, lbl] of [['info', 'info'], ['debug', 'debug']]) {
+        const o = document.createElement('option');
+        o.value = val; o.textContent = lbl;
+        if ((cfg.logging_level || 'info') === val) o.selected = true;
+        input.appendChild(o);
+      }
+      input.id = 'cfg-logging-level';
     } else {
       input = document.createElement('input');
       input.type = f.type || 'text';
@@ -1039,9 +1026,147 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
     }
     input.name = f.key;
     label.appendChild(input);
-    form.appendChild(label);
+    targetEl.appendChild(label);
   }
+
+  // ---- agent columns ----
+  const agentRow = document.createElement('div');
+  agentRow.className = 'flex gap-4';
+
+  const claudeCol = document.createElement('div');
+  claudeCol.className = 'flex-1 flex flex-col gap-3';
+  const claudeHeader = document.createElement('p');
+  claudeHeader.className = 'text-xs text-claude uppercase tracking-wider font-bold';
+  claudeHeader.textContent = 'Claude';
+  claudeCol.appendChild(claudeHeader);
+  for (const f of [
+    { key: 'claude_binary', label: 'Binary path' },
+    { key: 'claude_model',  label: 'Model', type: 'select', agentKey: 'claude' },
+    { key: 'claude_workdir',label: 'Working dir' },
+  ]) makeField(f, claudeCol);
+
+  const codexCol = document.createElement('div');
+  codexCol.className = 'flex-1 flex flex-col gap-3';
+  const codexHeader = document.createElement('p');
+  codexHeader.className = 'text-xs text-codex uppercase tracking-wider font-bold';
+  codexHeader.textContent = 'Codex';
+  codexCol.appendChild(codexHeader);
+  for (const f of [
+    { key: 'codex_binary', label: 'Binary path' },
+    { key: 'codex_model',  label: 'Model', type: 'select', agentKey: 'codex' },
+    { key: 'codex_workdir',label: 'Working dir' },
+  ]) makeField(f, codexCol);
+
+  agentRow.appendChild(claudeCol);
+  agentRow.appendChild(codexCol);
+  form.appendChild(agentRow);
+
+  // ---- session settings grid ----
+  const sessionSep = document.createElement('div');
+  sessionSep.className = 'border-t border-white/10 pt-3';
+  sessionSep.innerHTML = '<p class="text-xs text-muted uppercase tracking-wider">Session</p>';
+  form.appendChild(sessionSep);
+
+  const sessionGrid = document.createElement('div');
+  sessionGrid.className = 'grid grid-cols-2 gap-x-4 gap-y-3';
+  for (const f of [
+    { key: 'round_limit',       label: 'Round limit',                      type: 'number' },
+    { key: 'halt_timeout_secs', label: 'Halt timeout (seconds, 0 = never)', type: 'number' },
+    { key: 'port',              label: 'Port',                              type: 'number' },
+    { key: 'sessions_dir',      label: 'Sessions dir' },
+  ]) makeField(f, sessionGrid);
+  form.appendChild(sessionGrid);
+
+  // ---- MCP section ----
+  const mcpSep = document.createElement('div');
+  mcpSep.className = 'border-t border-white/10 pt-3';
+  mcpSep.innerHTML = '<p class="text-xs text-muted uppercase tracking-wider">MCP Tools</p>';
+  form.appendChild(mcpSep);
+
+  const mcpRow = document.createElement('div');
+  mcpRow.className = 'flex gap-4';
+
+  const mcpLeft = document.createElement('div');
+  mcpLeft.className = 'flex-1 flex flex-col gap-3';
+  const fsLabel = document.createElement('label');
+  fsLabel.className = 'flex flex-col gap-1 text-xs text-muted';
+  fsLabel.textContent = 'Filesystem MCP enabled';
+  const fsWrapper = document.createElement('div');
+  fsWrapper.className = 'flex items-center gap-2 mt-1';
+  const fsCheck = document.createElement('input');
+  fsCheck.type = 'checkbox'; fsCheck.name = 'mcp_filesystem_enabled';
+  fsCheck.className = 'w-4 h-4 accent-claude';
+  fsCheck.checked = !!cfg.mcp_filesystem_enabled;
+  fsWrapper.appendChild(fsCheck);
+  fsLabel.appendChild(fsWrapper);
+  mcpLeft.appendChild(fsLabel);
+
+  const mcpRight = document.createElement('div');
+  mcpRight.className = 'flex-1 flex flex-col gap-3';
+  const fsPathsLabel = document.createElement('label');
+  fsPathsLabel.className = 'flex flex-col gap-1 text-xs text-muted';
+  fsPathsLabel.textContent = 'Filesystem allowed paths (one per line)';
+  const fsPathsInput = document.createElement('textarea');
+  fsPathsInput.rows = 3; fsPathsInput.name = 'mcp_filesystem_paths';
+  fsPathsInput.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none font-mono text-xs';
+  fsPathsInput.value = Array.isArray(cfg.mcp_filesystem_paths) ? cfg.mcp_filesystem_paths.join('\n') : '';
+  fsPathsInput.placeholder = 'Leave empty to use agent workdir';
+  fsPathsLabel.appendChild(fsPathsInput);
+  mcpRight.appendChild(fsPathsLabel);
+
+  mcpRow.appendChild(mcpLeft);
+  mcpRow.appendChild(mcpRight);
+  form.appendChild(mcpRow);
+
+  const githubSep = document.createElement('div');
+  githubSep.className = 'border-t border-white/10 pt-3';
+  githubSep.innerHTML = '<p class="text-xs text-muted uppercase tracking-wider">GitHub MCP — coming soon</p>';
+  form.appendChild(githubSep);
+
+  // ---- logging section ----
+  const logSep = document.createElement('div');
+  logSep.className = 'border-t border-white/10 pt-3';
+  logSep.innerHTML = '<p class="text-xs text-muted uppercase tracking-wider">Logging</p>';
+  form.appendChild(logSep);
+
+  const logRow = document.createElement('div');
+  logRow.className = 'flex items-end gap-4';
+
+  const logToggleLabel = document.createElement('label');
+  logToggleLabel.className = 'flex flex-col gap-1 text-xs text-muted';
+  logToggleLabel.textContent = 'Enable logging to ~/.kollab/kollab.log';
+  const logToggleWrapper = document.createElement('div');
+  logToggleWrapper.className = 'flex items-center gap-2 mt-1';
+  const logToggle = document.createElement('input');
+  logToggle.type = 'checkbox'; logToggle.name = 'logging_enabled';
+  logToggle.className = 'w-4 h-4 accent-claude';
+  logToggle.checked = !!cfg.logging_enabled;
+  logToggleWrapper.appendChild(logToggle);
+  logToggleLabel.appendChild(logToggleWrapper);
+  logRow.appendChild(logToggleLabel);
+
+  const logLevelLabel = document.createElement('label');
+  logLevelLabel.className = 'flex flex-col gap-1 text-xs text-muted';
+  logLevelLabel.textContent = 'Log level';
+  const logLevelSelect = document.createElement('select');
+  logLevelSelect.name = 'logging_level'; logLevelSelect.id = 'cfg-logging-level';
+  logLevelSelect.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none disabled:opacity-40';
+  for (const [val, lbl] of [['info', 'info'], ['debug', 'debug']]) {
+    const o = document.createElement('option');
+    o.value = val; o.textContent = lbl;
+    if ((cfg.logging_level || 'info') === val) o.selected = true;
+    logLevelSelect.appendChild(o);
+  }
+  logLevelLabel.appendChild(logLevelSelect);
+  logRow.appendChild(logLevelLabel);
+  form.appendChild(logRow);
+
   document.getElementById('modal-configure').classList.remove('hidden');
+
+  // Logging toggle/dropdown interlock
+  const syncLevel = () => { logLevelSelect.disabled = !logToggle.checked; };
+  syncLevel();
+  logToggle.addEventListener('change', syncLevel);
 });
 
 document.getElementById('btn-config-cancel').addEventListener('click', () => {
@@ -1232,25 +1357,11 @@ async function openHistorySession(sessionId, goal, sessionNumber) {
 
 // Background restore: write into tab._nodes only, never touch live DOM.
 function reconstructSessionIntoTab(tab, events) {
-  const readonlyBanner = document.createElement('div');
-  readonlyBanner.className = 'rounded border border-white/10 bg-userPanel px-4 py-2 text-muted text-xs flex items-center justify-between';
-  const bannerText = document.createElement('span');
-  bannerText.textContent = 'This session is complete. Read-only view.';
-  readonlyBanner.appendChild(bannerText);
-  if (tab.sessionId) readonlyBanner.appendChild(buildExportButton(tab.sessionId, tab.sessionNumber));
-  appendNodeToTab(tab, readonlyBanner);
   _reconstructEvents(events, node => appendNodeToTab(tab, node), tab.sessionNumber);
 }
 
 // Foreground open: write into active tab via appendToActiveTab (touches live DOM).
 function reconstructSession(tab, events) {
-  const readonlyBanner = document.createElement('div');
-  readonlyBanner.className = 'rounded border border-white/10 bg-userPanel px-4 py-2 text-muted text-xs flex items-center justify-between';
-  const bannerText = document.createElement('span');
-  bannerText.textContent = 'This session is complete. Read-only view.';
-  readonlyBanner.appendChild(bannerText);
-  if (tab.sessionId) readonlyBanner.appendChild(buildExportButton(tab.sessionId, tab.sessionNumber));
-  appendToActiveTab(readonlyBanner);
   _reconstructEvents(events, node => appendToActiveTab(node), tab.sessionNumber);
 }
 
@@ -1261,6 +1372,7 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
   const cardMap = {}; // turn_id -> card DOM node
   let _sessionId = null;
   let _sessionNumber = fallbackSessionNumber || 0;
+  let goalCard = null; // hoisted so session_end can update it
 
   for (const ev of events) {
     const kind = ev.kind;
@@ -1269,12 +1381,15 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
       const sessionNum = ev.payload?.session_number || fallbackSessionNumber || 0;
       _sessionId = ev.session_id || null;
       _sessionNumber = sessionNum;
-      const goalCard = document.createElement('div');
+      goalCard = document.createElement('div');
       goalCard.className = 'rounded-lg border border-white/10 bg-userPanel p-3 flex flex-col gap-1';
+      goalCard.id = 'recon-goal-card';
       goalCard.innerHTML = `
         <div class="flex items-center justify-between">
           <div class="text-xs text-muted uppercase">goal</div>
-          ${sessionNum ? `<span class="text-xs text-muted opacity-50">Session #${sessionNum}</span>` : ''}
+          <div class="flex items-center gap-2" id="recon-goal-meta">
+            ${sessionNum ? `<span class="text-xs text-muted opacity-50">Session #${sessionNum}</span>` : ''}
+          </div>
         </div>
         <pre class="whitespace-pre-wrap text-user">${escHtml(ev.payload?.goal || '')}</pre>
       `;
@@ -1346,6 +1461,13 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
 
     } else if (kind === 'session_end') {
       const reasons = {
+        convergence: '\u2713 Converged',
+        round_limit: '\u26a0 Round limit',
+        token_limit: '\u26a0 Token limit',
+        halted:      '\u23f9 Halted',
+        expired:     '\u23f3 Expired',
+      };
+      const reasonsFull = {
         convergence: '\u2713 Both agents reached agreement.',
         round_limit: '\u26a0 Round limit reached.',
         token_limit: '\u26a0 Token budget exhausted.',
@@ -1353,11 +1475,34 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
         expired:     '\u23f3 Stopped / expired.',
       };
       const reason = ev.payload?.reason || '';
+
+      // Update Goal card to show verdict + readonly pill + export
+      const goalMeta = goalCard ? goalCard.querySelector('#recon-goal-meta') : null;
+      if (goalMeta) {
+        const verdictColors = {
+          convergence: 'text-verdictAgree',
+          round_limit: 'text-verdictRevised',
+          token_limit: 'text-verdictRevised',
+          halted: 'text-muted',
+          expired: 'text-muted',
+        };
+        const pill = document.createElement('span');
+        pill.className = `text-xs px-1.5 py-0.5 rounded font-bold ${verdictColors[reason] || 'text-muted'} bg-white/10`;
+        pill.textContent = reasons[reason] || reason;
+        goalMeta.appendChild(pill);
+        const roLabel = document.createElement('span');
+        roLabel.className = 'text-xs text-muted opacity-50';
+        roLabel.textContent = 'read-only';
+        goalMeta.appendChild(roLabel);
+        if (_sessionId) goalMeta.appendChild(buildExportButton(_sessionId, _sessionNumber));
+      }
+
+      // Bottom session-end banner: reason text + export button
       const banner = document.createElement('div');
-      banner.className = 'rounded-lg border border-white/20 bg-userPanel px-4 py-3 text-center text-muted flex flex-col items-center gap-2';
-      const reasonSpan = document.createElement('span');
-      reasonSpan.textContent = reasons[reason] || `Session ended: ${reason}`;
-      banner.appendChild(reasonSpan);
+      banner.className = 'rounded-lg border border-white/20 bg-userPanel px-4 py-3 text-center text-muted flex items-center justify-center gap-3';
+      const bannerText = document.createElement('span');
+      bannerText.textContent = reasonsFull[reason] || `Session ended: ${reason}`;
+      banner.appendChild(bannerText);
       if (_sessionId) banner.appendChild(buildExportButton(_sessionId, _sessionNumber));
       appendFn(banner);
     }
