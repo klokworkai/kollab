@@ -27,6 +27,18 @@ A session that is halted mid-stream, a directive is injected targeting one agent
 
 Suggested goal type: any session where the initial direction is plausible but the user wants to add a constraint that wasn't in the original goal (e.g. "now assume the service must run in a resource-constrained environment").
 
+### `round-limit/`
+
+A session that reaches the configured round limit without Codex issuing an AGREE verdict. Shows the `round_limit` session end reason, the amber history pill, and what sustained disagreement looks like across the full round budget.
+
+Suggested goal type: a deliberately contentious design question with valid arguments on both sides.
+
+### `mid-stream-halt/`
+
+A session where Stop is clicked while an agent's turn is actively streaming. Shows the `turn_interrupted` JSONL event, the `⏸ interrupted` marker on the partial turn card, and the subsequent resume turn where the same agent runs again from clean history.
+
+Suggested goal type: any session — the pattern is about the halt timing, not the goal content.
+
 ---
 
 ## Adding examples
