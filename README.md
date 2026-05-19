@@ -2,121 +2,138 @@
   <img src="kollab-logo.png"/>
 </p>
 
-<p align="center"><em>Two Minds | One Code</em></p>
+<p align="center"><em>ACE · Adversarial Collab Engine</em></p>
 
 # koll♠b
 
-koll♠b is a transparent, adversarial-collaborative dialogue engine that pits two AI coding agents — **Claude** (Anthropic) and **Codex** (OpenAI) — against each other on a single goal you define. Every turn, every critique, every revision, and every disagreement is rendered live in your browser as it happens.
+koll♠b is a transparent multi-agent orchestration system that runs two AI coding agents — **Claude** (Anthropic) and **Codex** (OpenAI) — through an adversarial-collaborative reasoning workflow on a shared engineering objective.
 
-The product is the **visibility into the inter-model dynamic** — not the orchestration itself. koll♠b is a demo and observability tool, not a production pipeline.
+Every turn, every critique, every revision, and every disagreement is rendered live in a browser UI as it happens. The product is **visibility into the inter-model dynamic** — not the orchestration itself.
 
-> ⚠️ Early-stage demo. Not for production use.
+> Early-stage demo. Not for production use.
 
 ---
 
-## How it works — enter ACE, the Adversarial Collab Engine
+## Why koll♠b exists
 
-At the heart of koll♠b is **ACE — the Adversarial Collab Engine**. ACE owns the session state machine, drives every turn, parses verdict trailers, and enforces convergence rules. It doesn't understand what Claude and Codex are saying — it reads the `<verdict>` tag at the end of each turn and acts on it mechanically. When Codex emits `AGREE`, ACE closes the session. When the round limit is hit, ACE stops the loop. The intelligence is in the agents; ACE runs the show.
+Most AI-assisted engineering workflows are single-model and opaque: you send a prompt, you get output, you don't know what tradeoffs were made or what the model didn't challenge itself on.
 
-When you submit a goal, ACE fans it out to both agents simultaneously — each model reads your goal first-hand before seeing any peer output. ACE then alternates turns, feeding each agent only the peer's latest message (not a full transcript replay), so each model reacts to the other in real time.
+koll♠b makes the reasoning process inspectable. Two independent models work toward the same goal with fixed roles — one produces, one adversarially critiques — and neither can skip the other's objections. Every turn is logged, streamed live, and replayable. You can stop the session at any point, inject a directive into one or both agents, and resume. The dialogue is the artifact.
 
-**Claude is the Producer.** It writes the initial proposal — code, design, argument — and defends or revises it under critique. Claude's first turn is always the `PROPOSAL`.
+---
 
-**Codex is the Critic.** It adversarially reviews Claude's output, finds real flaws, and issues a verdict each turn. The critic's verdict is the only one that matters — a single Codex `AGREE` ends the session regardless of round count.
+## Why not just use agents?
 
-Each turn ends with a structured verdict trailer:
+Agents can emit chain-of-thought logs. The distinction isn't observability capability — it's whether observability is the contract or the configuration.
+
+With autonomous agent frameworks, coordination is implicit (one agent calls another), convergence is emergent (you hope they agree), and human intervention is a kill switch bolted on after the fact.
+
+koll♠b is different in three specific ways:
+
+- **Structured convergence protocol.** Every turn ends with a `<verdict>` trailer — `AGREE`, `DISAGREE`, or `REVISED`. ACE parses this mechanically. Codex AGREE is the sole convergence signal; Claude AGREE has no effect on session state. The critic is the convergence arbiter, not a heuristic.
+- **Human intervention is first-class.** Stop can fire at any point including mid-stream. The partial output is preserved as an observable artifact but never fed back into any agent's prompt. Directive injection is per-actor and queued — multiple directives accumulate, not overwrite. This is a state machine design, not a kill switch.
+- **Observability is structural, not opt-in.** Turn IDs are stable for the session lifetime. Reasoning blocks are separated from response text. Interrupted turns keep their ID and remain visible. Every event is typed, logged to JSONL, and replayable from disk. You can't accidentally make a session un-auditable.
+
+The framing: **agents can be made observable — koll♠b makes observability the contract, not the configuration.**
+
+---
+
+## ACE — Adversarial Collab Engine
+
+ACE (`ace.py`) is the orchestration control plane. It owns the session state machine, drives every turn, parses verdict trailers, enforces convergence rules, and manages halt/resume lifecycle. ACE doesn't understand what the models are saying — it reads the `<verdict>` tag at the end of each turn and acts on it mechanically.
+
+This maps directly to known platform patterns: ACE is a **reconciliation loop**. Desired state = convergence. Actual state = current verdict and round count. ACE continuously drives toward the desired state by sequencing turns, enforcing role boundaries, and parsing structured signals — the same control plane model as a Kubernetes controller, a GitOps engine, or a workflow orchestrator.
+
+**Session state machine:**
+
+```
+idle → fanning_out → claude_turn ⇄ codex_turn → done
+                          ↕
+                        halted → (resume) → claude_turn | codex_turn
+                          ↓
+                       expired
+```
+
+**Roles are fixed per session:**
+
+- **Claude — Producer.** Writes the initial proposal and defends or revises it under critique. Claude's first turn is always `PROPOSAL` — no verdict on C-1.
+- **Codex — Critic.** Adversarially reviews Claude's output, finds substantive flaws, and issues a verdict each turn. A single Codex `AGREE` closes the session — no second confirmation needed.
+
+**Verdict protocol:**
 
 | Verdict | Meaning |
 |---|---|
-| `AGREE` | Critique accepted / issue resolved — debate over |
-| `DISAGREE` | Position held, critique rejected — continue |
-| `REVISED` | Work updated in response to critique — continue |
+| `AGREE` | Critique accepted / issue resolved — session ends (Codex only) |
+| `DISAGREE` | Position held, critique rejected — loop continues |
+| `REVISED` | Work updated in response to critique — loop continues |
 
-Sessions end on **convergence** (Codex AGREEs), **round limit** (max rounds without agreement), **token limit** (budget exhausted), or **halt** (you stopped it).
+**Arbitration semantics:** ACE arbitrates on process, not content. Neither agent can skip a turn, respond twice, or see the other's system prompt. Neither agent sees the full transcript — each sees only the peer's last completed turn. The user cannot inject content during an active turn. This is bounded autonomy: agents reason freely within their turns; ACE enforces the structure around them.
 
----
-
-## What it does
-
-- Runs **Claude Code** (the CLI agent harness) and **OpenAI Codex** as two long-lived persistent agents
-- Sends your goal to both **in parallel** at session start so each forms its own first-hand understanding
-- Drives a turn-based producer → critic loop, each turn ending in a `<verdict>` trailer that ACE parses
-- Streams the full dialogue live in a browser UI with turn IDs (`C-1`, `X-1`, …), color-coded cards (orange = Claude, blue = Codex), collapsible reasoning blocks, and verdict pills
-- Supports **Stop & Resume** at any point — even mid-stream — with optional directed instructions injected into specific agents on resume
-- Maintains a **history pane** of all completed sessions with filter by outcome and one-click readonly replay
-- Persists open tabs across browser refreshes
-- Logs every event as append-only JSONL on disk
-- Runs entirely on your machine — no cloud, no accounts, no telemetry
-
-## What it is not
-
-- Not a multi-agent framework, CI tool, or code-review platform
-- Not a wrapper around the Claude API or the Claude desktop/web app — it specifically drives **Claude Code**
-- Not multi-user, not cloud-hosted, not production-grade
+Full orchestration spec: [`specs/ace-orchestration.md`](specs/ace-orchestration.md)
 
 ---
 
-## Install
+## Architecture
 
-### Prerequisites
+![kollab system architecture](docs/kollab_architecture_v5.svg)
 
-- Python 3.11+
-- [Claude Code](https://docs.claude.com/en/docs/claude-code) installed and authenticated (`claude --version` works)
-- [OpenAI Codex CLI](https://github.com/openai/codex) installed and authenticated (`codex --version` works)
-- npm (for MCP filesystem tool, auto-installed on first run)
+**Five layers:**
 
-### From source
+- **Browser UI** — vanilla HTML + Tailwind CDN + `app.js`. Tabbed session view, streaming turn cards, history pane, directive input, export. No framework, no build step.
+- **FastAPI server** (`server.py`) — HTTP + WebSocket. Single global `/ws` endpoint broadcasts all session events to all connected clients. Session history, config, and export endpoints.
+- **ACE** (`ace.py`) — session state machine, turn dispatcher, verdict parser, directive queue (`dict[actor → list[str]]`), halt controller with configurable timeout, prompt builder backed by `prompts.py`.
+- **Agents** — `claude_agent.py` wraps the Claude Agent SDK (`ClaudeSDKClient`) for persistent in-process sessions with filesystem MCP. `codex_agent.py` drives the `codex exec` CLI as a subprocess with session resume via thread ID. Both implement `interrupt()` without tearing down the session.
+- **Persistence** — append-only JSONL event log per session (`transcript.py`), TOML config (`config.py`), optional file log (`~/.kollab/kollab.log`).
+
+**Session lifecycle:**
+
+![kollab session lifecycle](docs/kollab_sequence_v1.svg)
+
+**Key design decisions:**
+
+- **Persistent agent sessions** — both agents hold context across the full run. ACE passes only the peer's latest message, not a full transcript replay.
+- **Goal fan-out** — the user's goal is sent to both agents in parallel at session start, so each forms a first-hand understanding before any peer output exists.
+- **Mid-stream halt** — `interrupt()` is called on the active agent; ACE continues consuming chunks until the pipe drains naturally (no teardown). The interrupted turn stays visible in the UI but is never fed back into any agent's prompt.
+- **Directive queue** — multiple directives sent while halted accumulate per actor. On resume, all queued directives for the active agent are concatenated into the next turn's prompt prefix.
+- **No database** — JSONL on disk. Every event (turn start, turn end, verdict, user input, interrupt, session end) is one line of JSON, append-only, flush on every write.
+
+---
+
+## Inspectability
+
+koll♠b is built around the premise that AI-assisted engineering workflows should be auditable. Every decision point in the orchestration is observable:
+
+- Turn IDs (`C-1`, `X-1`, ...) are stable for the session lifetime — interrupted turns keep their ID, completed turns never renumber.
+- Reasoning blocks are surfaced per turn alongside the response text.
+- Directives are rendered as explicit `DIRECTIVE → CLAUDE / CODEX` cards, not silently injected.
+- Interrupted turns are preserved as observable artifacts with a `⏸ interrupted` marker — the partial output is visible but clearly not part of the dialogue.
+- Every session is replayable from its JSONL log — the history pane reconstructs the full turn sequence from disk.
+- Export produces a full-fidelity markdown transcript including reasoning blocks, verdicts, thread IDs, and directives.
+
+---
+
+## API and webhooks
+
+koll♠b exposes a REST API for headless use — trigger sessions programmatically, poll state, and retrieve transcripts. A webhook layer emits structured events (`disagreement`, `convergence`, `halt`, `directive`, and others) to any HTTP endpoint. Slack incoming webhooks are a first-class target with automatic Block Kit formatting.
+
+This enables integration patterns like Slack channel notifications with stop/resume buttons, GitHub Actions that run adversarial review on PRs, and CI pipelines that receive convergence signals as workflow gates.
+
+Full API and webhook spec, including Slack and GitHub integration examples: [`specs/ace-api-webhooks.md`](specs/ace-api-webhooks.md)
+
+---
+
+## Quick start
 
 ```bash
 git clone https://github.com/klokworkai/kollab
 cd kollab
 pip install -e .
-```
-
-### Via Docker
-
-```bash
-docker build -t kollab .
-docker run --rm -p 8765:8765 \
-  -v ~/.kollab:/root/.kollab \
-  -v ~/.claude:/root/.claude \
-  -v ~/.codex:/root/.codex \
-  kollab
-```
-
-The mounts pass through your existing Claude Code and Codex CLI auth.
-
----
-
-## Run
-
-```bash
 kollab
 ```
 
-Opens `http://localhost:8765` in your default browser. On first run, MCP packages are auto-installed into `~/.kollab/mcp/`.
+Opens `http://localhost:8765`. On first run, configure binary paths via **⚙ Configure** in the top bar.
 
-If this is your first time, open **⚙ Configure** and verify the binary paths, then click **+ New Session**.
-
----
-
-## Usage
-
-**Start a session** — click **+ New Session**, type your goal, optionally override the model, round limit, or token budget for this run, then hit Start.
-
-**Stop & Resume** — click **Stop** at any time, including mid-stream. The partial output stays visible as an artifact but is never fed back to either agent. On Resume, optionally select a target and type a directive before continuing.
-
-**Directives** — while halted, select a target (`→ Claude`, `→ Codex`, or `→ Claude, Codex`) and type an instruction. It's injected into that agent's next prompt only and rendered as a `DIRECTIVE →` card in the session.
-
-**History pane** — click **≡** to toggle. Filter by outcome (green = converged, amber = round limit, red = halted/expired). Click any row to open a readonly replay tab. Hover to reveal the × delete button.
-
-**Collapse all** — the `− collapse all` toggle below the goal card collapses every turn card body at once, useful for scanning verdicts across a long session.
-
-**Close all tabs** — the × button left of the tab count closes all inactive tabs without touching an active running session.
-
-**About** — click **?** in the top bar for the full about page and feature guide at `/about`.
-
-**Logs** — `~/.kollab/sessions/<session-id>.jsonl`. Inspect with `jq`.
+For full setup instructions including Docker, CLI auth, troubleshooting, and session walkthrough: **[RUNBOOK.md](RUNBOOK.md)**
 
 ---
 
@@ -133,54 +150,40 @@ Config lives at `~/.kollab/config.toml`. The **⚙ Configure** modal is the reco
 | `round_limit` | `8` | Max rounds per session |
 | `halt_timeout_secs` | `1800` | Auto-expire halted sessions (0 = never) |
 | `port` | `8765` | Server port |
-| `sessions_dir` | `~/.kollab/sessions` | JSONL session log directory |
 | `mcp_filesystem_enabled` | `true` | Give Claude filesystem MCP access |
-| `mcp_filesystem_paths` | `[]` | Allowed paths (empty = agent workdir) |
+| `logging_enabled` | `false` | Write logs to `~/.kollab/kollab.log` |
 
-Per-session overrides (model, round limit, token budget) can be set in the New Session modal without touching the config file.
-
----
-
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────┐
-│  Browser (tabbed chat UI + history pane)             │
-│   ↕ WebSocket                                        │
-│  FastAPI server                                      │
-│   ↕                                                  │
-│  ACE — Adversarial Collab Engine (ace.py)            │
-│   ├── Claude agent (Claude Agent SDK, persistent)    │
-│   └── Codex agent (codex CLI subprocess, persistent) │
-└──────────────────────────────────────────────────────┘
-         │
-         ▼
-   ~/.kollab/sessions/*.jsonl  (event log)
-```
-
-Single Python process. WebSocket for live events. No database — JSONL on disk.
+Per-session overrides (model, round limit, token budget) are set in the New Session modal.
 
 ---
 
 ## Development
 
 ```bash
-# install in dev mode
 pip install -e ".[dev]"
-
-# run tests
 pytest
-
-# run with hot reload
 uvicorn kollab.server:app --reload --port 8765
 ```
 
 ---
 
-## License
+## Specs
 
-TBD.
+| Document | Contents |
+|---|---|
+| [`specs/ace-orchestration.md`](specs/ace-orchestration.md) | ACE state machine, turn lifecycle, verdict protocol, arbitration semantics, observability model |
+| [`specs/ace-api-webhooks.md`](specs/ace-api-webhooks.md) | REST API, webhook events and payloads, Slack and GitHub integration patterns |
+
+---
 
 ## Status
 
-v2 — active development. Core dialogue loop, halt/resume, history, streaming, and about page complete.
+v2 — active development. Core dialogue loop, halt/resume, directive injection, history, streaming, export, and readonly replay complete.
+
+Roadmap: API + webhook layer, GitHub MCP integration, Slack and GitHub integration adapters.
+
+---
+
+## License
+
+Apache 2.0
