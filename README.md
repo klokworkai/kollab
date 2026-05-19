@@ -81,7 +81,7 @@ Full orchestration spec: [`specs/ace-orchestration.md`](specs/ace-orchestration.
 
 **Session lifecycle:**
 
-![kollab session lifecycle](docs/kollab_sequence_v1.svg)
+![kollab session lifecycle](docs/kollab_session_lifecycle_v3.svg)
 
 **Key design decisions:**
 
