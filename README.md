@@ -185,6 +185,6 @@ Apache 2.0
 ---
 
 <p align="center">
-  <img src="kollab-logo.png"/>
+  <img src="./kollab/static/assets/kollab-logo.png"/>
 </p>
 
