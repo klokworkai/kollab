@@ -1,9 +1,3 @@
-<p align="center">
-  <img src="kollab-logo.png"/>
-</p>
-
-<p align="center"><em>ACE · Adversarial Collab Engine</em></p>
-
 # koll♠b
 
 koll♠b is a transparent multi-agent orchestration system that runs two AI coding agents — **Claude** (Anthropic) and **Codex** (OpenAI) — through an adversarial-collaborative reasoning workflow on a shared engineering objective.
@@ -187,3 +181,10 @@ Roadmap: API + webhook layer, GitHub MCP integration, Slack and GitHub integrati
 ## License
 
 Apache 2.0
+
+---
+
+<p align="center">
+  <img src="kollab-logo.png"/>
+</p>
+
