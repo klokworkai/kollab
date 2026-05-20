@@ -21,7 +21,7 @@ You need the following before starting. Install anything missing before proceedi
 ## 2. Clone the repo
 
 ```bash
-git clone <repo-url> kollab
+git clone https://github.com/klokworkai/kollab.git kollab
 cd kollab
 ```
 

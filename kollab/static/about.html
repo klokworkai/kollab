@@ -142,8 +142,9 @@
         session state machine, drives every turn, parses verdict trailers, and enforces the convergence
         rules. It doesn't understand what Claude and Codex are saying — it reads the
         <code>&lt;verdict&gt;</code> tag at the end of each turn and acts on it mechanically.
-        When Codex emits AGREE, ACE closes the session. When the round limit is hit, ACE stops the loop.
-        The intelligence is in the agents; ACE runs the show.
+        A single Codex <span class="pill pill-agree">AGREE</span> is the sole convergence signal — ACE
+        closes the session immediately, regardless of round count. When the round limit is hit without
+        agreement, ACE stops the loop. The intelligence is in the agents; ACE runs the show.
       </p>
       <p>
         When you submit a goal, ACE fans it out to both agents simultaneously — each model reads
@@ -273,6 +274,8 @@
           <li><strong>Port</strong> — server port (restart required to take effect)</li>
           <li><strong>Sessions dir</strong> — where JSONL session logs are stored</li>
           <li><strong>Filesystem MCP</strong> — gives Claude read access to specified paths; leave blank to use its working dir</li>
+          <li><strong>API key</strong> — bearer token for the REST API; empty means no auth (safe for local use only)</li>
+          <li><strong>Webhooks</strong> — enable outbound event delivery: HTTP targets, Slack incoming webhook URLs, per-event toggles, and delivery timeout</li>
         </ul>
         <p>GitHub MCP is coming in a future release.</p>
       </div>
@@ -364,7 +367,8 @@
       <p>
         Python 3.11+, FastAPI, WebSockets on the backend. Vanilla HTML + Tailwind CDN + a single
         <code>app.js</code> on the frontend. No build step, no bundler, no React.
-        JSONL logs on disk, TOML config — no database, no auth, no multi-tenancy.
+        JSONL logs on disk, TOML config — no database, no multi-user auth, no multi-tenancy.
+        The REST API supports optional bearer token auth for headless callers.
       </p>
       <p>
         koll&#9824;b is a <strong>demo and observability tool</strong>. Every design decision optimises
@@ -374,7 +378,7 @@
     </div>
 
     <div class="section" style="padding-bottom:3rem;display:flex;flex-direction:column;align-items:center;gap:0.6rem">
-      <img src="/static/assets/klokwork-lowercase-k-only.png" alt="Klokwork AI" style="height:80px;width:auto" />
+      <img src="/static/assets/klokwork-k.png" alt="Klokwork AI" style="height:80px;width:auto" />
       <span style="color:var(--muted);font-size:0.7rem;opacity:0.4">koll&#9824;b &middot; Klokwork AI &middot; built with Claude Code</span>
     </div>
 
