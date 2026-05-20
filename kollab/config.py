@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
@@ -12,6 +13,17 @@ from pydantic import BaseModel
 
 CONFIG_PATH = Path("~/.kollab/config.toml").expanduser()
 
+log = logging.getLogger("kollab.config")
+
+_SLACK_PREFIX = "https://hooks.slack.com/"
+
+MODEL_ALIASES: dict[str, str] = {
+    "haiku":  "claude-haiku-4-5-20251001",
+    "sonnet": "claude-sonnet-4-6",
+    "opus":   "claude-opus-4-7",
+    "mini":   "gpt-5.4-mini",
+}
+
 MCP_PACKAGES = {
     "mcp_filesystem": "@modelcontextprotocol/server-filesystem",
     "mcp_github":     "@modelcontextprotocol/server-github",
@@ -19,6 +31,18 @@ MCP_PACKAGES = {
 
 # Resolved install dir — all MCP packages go here
 _MCP_DIR = Path("~/.kollab/mcp").expanduser()
+
+
+class WebhookConfig(BaseModel):
+    enabled: bool = False
+    targets: list[str] = []
+    slack_targets: list[str] = []
+    events: list[str] = [
+        "session_start", "turn_end", "disagreement",
+        "convergence", "round_limit", "halt",
+        "directive", "session_end",
+    ]
+    timeout_secs: int = 5
 
 
 class Config(BaseModel):
@@ -53,9 +77,28 @@ class Config(BaseModel):
     # Halt timeout: auto-expire halted sessions after this many seconds (0 = never)
     halt_timeout_secs: int = 1800
 
+    # API auth — empty string means no auth required (local browser use unaffected)
+    api_key: str = ""
+
+    # Webhook emission
+    webhooks: WebhookConfig = WebhookConfig()
+
 
 def _expand(value: str) -> str:
     return os.path.expanduser(value)
+
+
+def _normalise_webhook_targets(cfg: Config) -> None:
+    """Move any Slack URLs from targets to slack_targets and log a warning per URL moved."""
+    moved = [u for u in cfg.webhooks.targets if u.startswith(_SLACK_PREFIX)]
+    if not moved:
+        return
+    cfg.webhooks.targets = [u for u in cfg.webhooks.targets if not u.startswith(_SLACK_PREFIX)]
+    cfg.webhooks.slack_targets = list(cfg.webhooks.slack_targets) + moved
+    for u in moved:
+        log.warning(
+            "webhook target '%s' moved to slack_targets (Slack requires Block Kit format)", u
+        )
 
 
 def mcp_server_path(package_key: str) -> Path:
@@ -119,12 +162,15 @@ def load_config() -> Config:
     cfg.claude_workdir = _expand(cfg.claude_workdir)
     cfg.codex_workdir = _expand(cfg.codex_workdir)
     cfg.sessions_dir = _expand(cfg.sessions_dir)
-    
+
+    # move any Slack URLs from targets to slack_targets
+    _normalise_webhook_targets(cfg)
+
     # auto-create working dirs
     Path(cfg.claude_workdir).mkdir(parents=True, exist_ok=True)
     Path(cfg.codex_workdir).mkdir(parents=True, exist_ok=True)
     Path(cfg.sessions_dir).mkdir(parents=True, exist_ok=True)
-    
+
     return cfg
 
 

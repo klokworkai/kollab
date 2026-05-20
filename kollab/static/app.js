@@ -1161,6 +1161,88 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
   logRow.appendChild(logLevelLabel);
   form.appendChild(logRow);
 
+  // ---- webhooks section ----
+  const whSep = document.createElement('div');
+  whSep.className = 'border-t border-white/10 pt-3';
+  whSep.innerHTML = '<p class="text-xs text-muted uppercase tracking-wider">Webhooks</p>';
+  form.appendChild(whSep);
+
+  const whRow = document.createElement('div');
+  whRow.className = 'flex items-end gap-4';
+
+  const whToggleLabel = document.createElement('label');
+  whToggleLabel.className = 'flex flex-col gap-1 text-xs text-muted';
+  whToggleLabel.textContent = 'Enable webhook emission';
+  const whToggleWrapper = document.createElement('div');
+  whToggleWrapper.className = 'flex items-center gap-2 mt-1';
+  const whToggle = document.createElement('input');
+  whToggle.type = 'checkbox'; whToggle.id = 'cfg-webhooks-enabled';
+  whToggle.className = 'w-4 h-4 accent-claude';
+  whToggle.checked = !!(cfg.webhooks && cfg.webhooks.enabled);
+  whToggleWrapper.appendChild(whToggle);
+  whToggleLabel.appendChild(whToggleWrapper);
+  whRow.appendChild(whToggleLabel);
+
+  const whTimeoutLabel = document.createElement('label');
+  whTimeoutLabel.className = 'flex flex-col gap-1 text-xs text-muted';
+  whTimeoutLabel.textContent = 'Timeout (seconds)';
+  const whTimeoutInput = document.createElement('input');
+  whTimeoutInput.type = 'number'; whTimeoutInput.id = 'cfg-webhooks-timeout';
+  whTimeoutInput.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none w-20';
+  whTimeoutInput.value = (cfg.webhooks && cfg.webhooks.timeout_secs != null) ? cfg.webhooks.timeout_secs : 5;
+  whTimeoutLabel.appendChild(whTimeoutInput);
+  whRow.appendChild(whTimeoutLabel);
+  form.appendChild(whRow);
+
+  const whUrlsRow = document.createElement('div');
+  whUrlsRow.className = 'flex gap-4 mt-2';
+
+  const whTargetsLabel = document.createElement('label');
+  whTargetsLabel.className = 'flex-1 flex flex-col gap-1 text-xs text-muted';
+  whTargetsLabel.textContent = 'Webhook targets (one URL per line)';
+  const whTargetsInput = document.createElement('textarea');
+  whTargetsInput.rows = 3; whTargetsInput.id = 'cfg-webhooks-targets';
+  whTargetsInput.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none font-mono text-xs';
+  whTargetsInput.value = Array.isArray(cfg.webhooks && cfg.webhooks.targets) ? cfg.webhooks.targets.join('\n') : '';
+  whTargetsInput.placeholder = 'https://your-app.com/hooks/kollab';
+  whTargetsLabel.appendChild(whTargetsInput);
+  whUrlsRow.appendChild(whTargetsLabel);
+
+  const whSlackLabel = document.createElement('label');
+  whSlackLabel.className = 'flex-1 flex flex-col gap-1 text-xs text-muted';
+  whSlackLabel.textContent = 'Slack webhook URLs (one per line)';
+  const whSlackInput = document.createElement('textarea');
+  whSlackInput.rows = 3; whSlackInput.id = 'cfg-webhooks-slack';
+  whSlackInput.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none font-mono text-xs';
+  whSlackInput.value = Array.isArray(cfg.webhooks && cfg.webhooks.slack_targets) ? cfg.webhooks.slack_targets.join('\n') : '';
+  whSlackInput.placeholder = 'https://hooks.slack.com/services/…';
+  whSlackLabel.appendChild(whSlackInput);
+  whUrlsRow.appendChild(whSlackLabel);
+  form.appendChild(whUrlsRow);
+
+  const _allEvents = ['session_start','turn_end','disagreement','convergence','round_limit','halt','directive','session_end'];
+  const _enabledEvents = new Set((cfg.webhooks && Array.isArray(cfg.webhooks.events)) ? cfg.webhooks.events : _allEvents);
+
+  const whEventsSep = document.createElement('div');
+  whEventsSep.className = 'mt-2';
+  whEventsSep.innerHTML = '<p class="text-xs text-muted mb-1">Events to emit</p>';
+  form.appendChild(whEventsSep);
+
+  const whEventsGrid = document.createElement('div');
+  whEventsGrid.className = 'grid grid-cols-2 gap-x-4 gap-y-1';
+  for (const evt of _allEvents) {
+    const evLabel = document.createElement('label');
+    evLabel.className = 'flex items-center gap-2 text-xs text-muted';
+    const evCheck = document.createElement('input');
+    evCheck.type = 'checkbox'; evCheck.dataset.whEvent = evt;
+    evCheck.className = 'w-3.5 h-3.5 accent-claude';
+    evCheck.checked = _enabledEvents.has(evt);
+    evLabel.appendChild(evCheck);
+    evLabel.appendChild(document.createTextNode(evt));
+    whEventsGrid.appendChild(evLabel);
+  }
+  form.appendChild(whEventsGrid);
+
   document.getElementById('modal-configure').classList.remove('hidden');
 
   // Logging toggle/dropdown interlock
@@ -1187,6 +1269,24 @@ document.getElementById('btn-config-save').addEventListener('click', async () =>
     } else {
       data[el.name] = el.value;
     }
+  }
+
+  // Collect webhook fields (by ID, not name, to avoid the generic loop above)
+  const whEnabledEl   = document.getElementById('cfg-webhooks-enabled');
+  const whTimeoutEl   = document.getElementById('cfg-webhooks-timeout');
+  const whTargetsEl   = document.getElementById('cfg-webhooks-targets');
+  const whSlackEl     = document.getElementById('cfg-webhooks-slack');
+  if (whEnabledEl) {
+    const checkedEvents = Array.from(form.querySelectorAll('[data-wh-event]'))
+      .filter(cb => cb.checked)
+      .map(cb => cb.dataset.whEvent);
+    data['webhooks'] = {
+      enabled:       whEnabledEl.checked,
+      targets:       whTargetsEl ? whTargetsEl.value.split('\n').map(s => s.trim()).filter(Boolean) : [],
+      slack_targets: whSlackEl   ? whSlackEl.value.split('\n').map(s => s.trim()).filter(Boolean)   : [],
+      events:        checkedEvents,
+      timeout_secs:  whTimeoutEl ? (Number(whTimeoutEl.value) || 5) : 5,
+    };
   }
   const res = await fetch('/api/config', {
     method: 'POST',

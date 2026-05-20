@@ -15,13 +15,17 @@ dependencies = [
     "tomli",
     "tomli-w",
     "pydantic",
+    "httpx>=0.27",
 ]
 
 [project.scripts]
 kollab = "kollab.__main__:main"
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-asyncio"]
+dev = ["pytest", "pytest-asyncio", "httpx"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
 
 [tool.setuptools.packages.find]
 where = ["."]

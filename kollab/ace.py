@@ -18,6 +18,7 @@ from .prompts import (
     build_first_turn_prompt, build_turn_prompt,
 )
 from .transcript import TranscriptLog
+from .webhooks import emit
 
 _VERDICT_RE = re.compile(r"<verdict>\s*(AGREE|DISAGREE|REVISED)\s*</verdict>", re.I)
 
@@ -130,6 +131,7 @@ class Session:
         )
         self.state = "claude_turn"
         self._broadcast({"type": "state", "state": "claude_turn", "round": 1})
+        await self._emit("session_start", {"round": 0})
 
     async def run_turn(self) -> None:
         if self.state not in ("claude_turn", "codex_turn"):
@@ -265,6 +267,7 @@ class Session:
             self._broadcast({"type": "turn_cancel", "turn_id": turn_id})
             self._broadcast({"type": "state", "state": "halted",
                              "round": self.round})
+            await self._emit("halt", {"round": self.round})
             return
 
         # ------ normal completion ------
@@ -293,6 +296,7 @@ class Session:
             # ended naturally — treat as not-interrupted.
             self._broadcast({"type": "state", "state": "halted",
                              "round": self.round})
+            await self._emit("halt", {"round": self.round})
             return
 
         # convergence tracking
@@ -318,6 +322,32 @@ class Session:
             self._broadcast({"type": "session_done", "reason": self._done_reason,
                              "session_id": self.id, "session_number": self.session_number})
 
+        # Webhook emission — after all JSONL writes and WebSocket broadcasts.
+        _turn_fields = {
+            "round": self.round,
+            "turn_id": turn_id,
+            "actor": actor,
+            "role": role,
+            "verdict": turn.verdict,
+            "turn_text": turn.text,
+        }
+        await self._emit("turn_end", _turn_fields)
+        if turn.verdict == "DISAGREE":
+            await self._emit("disagreement", _turn_fields)
+        if self._done_reason == "convergence":
+            await self._emit("convergence", {**_turn_fields, "end_reason": "convergence"})
+        if self.state == "done":
+            if self._done_reason == "round_limit":
+                await self._emit("round_limit", {
+                    "round": self.round,
+                    "round_limit": self._round_limit,
+                    "end_reason": "round_limit",
+                })
+            await self._emit("session_end", {
+                "round": self.round,
+                "end_reason": self._done_reason,
+            })
+
     async def handle_user_input(self, text: str, target: str = "both") -> None:
         self._log({"kind": "user_input", "actor": "user", "role": "user",
                    "round": self.round, "payload": {"text": text, "target": target}})
@@ -326,6 +356,7 @@ class Session:
             self._pending_directives["claude"].append(text)
         if target in ("codex", "both"):
             self._pending_directives["codex"].append(text)
+        await self._emit("directive", {"directive_text": text, "directive_target": target})
 
     def stop(self) -> None:
         log.info("session_stop id=%s state=%s", self.id, self.state)
@@ -398,6 +429,21 @@ class Session:
             self._transcript.close()
 
     # ------------------------------------------------------------------ helpers
+
+    async def _emit(self, event_type: str, extra: dict | None = None) -> None:
+        """Build common fields, merge extra, fire webhook. Swallows all errors."""
+        payload: dict = {
+            "session_id": self.id,
+            "session_number": self.session_number,
+            "goal": self.goal,
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        }
+        if extra:
+            payload.update(extra)
+        try:
+            await emit(event_type, payload, self._cfg)
+        except Exception as exc:
+            log.error("webhook emit unexpected error event=%s error=%s", event_type, exc)
 
     def _log(self, event: dict) -> None:
         if self._transcript:

@@ -7,12 +7,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .config import Config, load_config, save_config, validate_config, next_session_number
+from .config import Config, MODEL_ALIASES, load_config, save_config, validate_config, next_session_number
 from .ace import Session, SessionOverrides
 
 app = FastAPI(title="kollab")
@@ -65,6 +65,15 @@ def _apply_logging(cfg: Config) -> None:
 _apply_logging(_cfg)
 
 
+# ------------------------------------------------------------------ auth
+
+async def require_api_key(authorization: str | None = Header(default=None)) -> None:
+    if not _cfg.api_key:
+        return  # auth disabled — local browser use unaffected
+    if authorization != f"Bearer {_cfg.api_key}":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
 # ------------------------------------------------------------------ broadcast
 
 def _broadcast(msg: dict) -> None:
@@ -93,7 +102,7 @@ async def index() -> FileResponse:
 
 # ------------------------------------------------------------------ config
 
-@app.get("/api/config")
+@app.get("/api/config", dependencies=[Depends(require_api_key)])
 async def get_config() -> dict:
     return _cfg.model_dump()
 
@@ -102,7 +111,7 @@ class ConfigUpdate(BaseModel):
     model_config = {"extra": "allow"}
 
 
-@app.post("/api/config")
+@app.post("/api/config", dependencies=[Depends(require_api_key)])
 async def post_config(body: ConfigUpdate) -> dict:
     global _cfg
     try:
@@ -134,25 +143,53 @@ class UserInputBody(BaseModel):
     target: str = "both"
 
 
-@app.post("/api/session")
+@app.get("/api/session", dependencies=[Depends(require_api_key)])
+async def get_session_state() -> dict:
+    if _session is None:
+        return {"session_id": None, "state": "idle"}
+    started_at = None
+    if _session.turns:
+        ts = _session.turns[0].started_at
+        started_at = ts.isoformat().replace("+00:00", "Z")
+    return {
+        "session_id": _session.id,
+        "session_number": _session.session_number,
+        "state": _session.state,
+        "round": _session.round,
+        "goal": _session.goal,
+        "turns_completed": sum(1 for t in _session.turns if not t.interrupted),
+        "started_at": started_at,
+    }
+
+
+@app.post("/api/session", dependencies=[Depends(require_api_key)])
 async def start_session(body: StartSessionBody) -> dict:
     global _session, _session_task
     if _session is not None and _session.state not in ("done", "halted"):
         raise HTTPException(status_code=409, detail="A session is already active.")
+    def _resolve(model: str | None) -> str | None:
+        if model is None:
+            return None
+        return MODEL_ALIASES.get(model, model)
+
     overrides = SessionOverrides(
         round_limit=body.round_limit,
         max_tokens_per_turn=body.max_tokens_per_turn,
         max_tokens_per_session=body.max_tokens_per_session,
-        claude_model=body.claude_model,
-        codex_model=body.codex_model,
+        claude_model=_resolve(body.claude_model),
+        codex_model=_resolve(body.codex_model),
     )
     _session = Session(_cfg, _broadcast, overrides=overrides,
                         session_number=next_session_number(_cfg))
     _session_task = asyncio.create_task(_run_session(body.goal))
-    return {"session_id": _session.id, "session_number": _session.session_number}
+    return {
+        "session_id": _session.id,
+        "session_number": _session.session_number,
+        "state": "fanning_out",
+    }
 
 
-@app.post("/api/session/stop")
+@app.post("/api/session/stop", dependencies=[Depends(require_api_key)])
 async def stop_session() -> dict:
     if _session is None:
         raise HTTPException(status_code=404, detail="No active session.")
@@ -160,7 +197,7 @@ async def stop_session() -> dict:
     return {"ok": True}
 
 
-@app.post("/api/session/resume")
+@app.post("/api/session/resume", dependencies=[Depends(require_api_key)])
 async def resume_session() -> dict:
     global _session_task
     if _session is None:
@@ -170,7 +207,7 @@ async def resume_session() -> dict:
     return {"ok": True}
 
 
-@app.post("/api/session/input")
+@app.post("/api/session/input", dependencies=[Depends(require_api_key)])
 async def session_input(body: UserInputBody) -> dict:
     if _session is None:
         raise HTTPException(status_code=404, detail="No active session.")
@@ -221,7 +258,7 @@ async def _resume_loop() -> None:
             await _session.close()
 
 
-@app.post("/api/shutdown")
+@app.post("/api/shutdown", dependencies=[Depends(require_api_key)])
 async def shutdown() -> dict:
     import signal
     import os
@@ -235,7 +272,7 @@ async def shutdown() -> dict:
 
 # ------------------------------------------------------------------ session history
 
-@app.get("/api/sessions")
+@app.get("/api/sessions", dependencies=[Depends(require_api_key)])
 async def list_sessions() -> list[dict]:
     sessions_dir = Path(_cfg.sessions_dir)
     results: list[dict] = []
@@ -268,7 +305,7 @@ async def list_sessions() -> list[dict]:
     return results
 
 
-@app.delete("/api/sessions/{session_id}")
+@app.delete("/api/sessions/{session_id}", dependencies=[Depends(require_api_key)])
 async def delete_session(session_id: str) -> dict:
     sessions_dir = Path(_cfg.sessions_dir)
     path = sessions_dir / f"{session_id}.jsonl"
@@ -278,7 +315,7 @@ async def delete_session(session_id: str) -> dict:
     return {"ok": True}
 
 
-@app.get("/api/sessions/{session_id}")
+@app.get("/api/sessions/{session_id}", dependencies=[Depends(require_api_key)])
 async def get_session(session_id: str) -> dict:
     sessions_dir = Path(_cfg.sessions_dir)
     path = sessions_dir / f"{session_id}.jsonl"
@@ -291,7 +328,7 @@ async def get_session(session_id: str) -> dict:
     return {"session_id": session_id, "events": events}
 
 
-@app.get("/api/sessions/{session_id}/export")
+@app.get("/api/sessions/{session_id}/export", dependencies=[Depends(require_api_key)])
 async def export_session(session_id: str, session_number: int = 0) -> Any:
     from fastapi.responses import Response
     sessions_dir = Path(_cfg.sessions_dir)
