@@ -562,13 +562,14 @@ function buildTurnCard(msg) {
       </div>`;
 
   card.innerHTML = `
-    <div class="flex items-center gap-2 text-xs">
-      <button id="collapse-${msg.turn_id}" class="text-muted text-base opacity-30 cursor-not-allowed transition-transform select-none" title="Collapse" disabled>&#8250;</button>
-      <span class="font-bold ${accentText} uppercase">${msg.actor}</span>
-      <span class="text-muted">${roleLabel}</span>
-      <span id="badge-${msg.turn_id}" class="ml-auto font-mono text-muted">${msg.turn_id}</span>
+    <div class="flex items-center gap-2 text-xs min-w-0">
+      <button id="collapse-${msg.turn_id}" class="text-muted text-base opacity-30 cursor-not-allowed transition-transform select-none shrink-0" title="Collapse" disabled>&#8250;</button>
+      <span class="font-bold ${accentText} uppercase shrink-0">${msg.actor}</span>
+      <span class="text-muted shrink-0">${roleLabel}</span>
+      <span id="badge-${msg.turn_id}" class="ml-auto font-mono text-muted shrink-0">${msg.turn_id}</span>
       <span id="verdict-${msg.turn_id}" ${msg.turn_id === 'C-1' ? 'class="text-xs px-1.5 py-0.5 rounded font-bold text-muted bg-white/10"' : ''}>${msg.turn_id === 'C-1' ? 'PROPOSAL' : ''}</span>
     </div>
+    <div id="summary-${msg.turn_id}" class="text-xs text-muted italic hidden"></div>
     <div id="collapsible-body-${msg.turn_id}" class="flex flex-col gap-2">
       ${reasoningBlock}
       <details id="result-${msg.turn_id}" open>
@@ -728,7 +729,17 @@ function onTurnEnd(msg) {
   const body = card
     ? card.querySelector(`#body-${msg.turn_id}`)
     : document.getElementById(`body-${msg.turn_id}`);
-  if (body) body.classList.remove('thinking');
+  if (body) {
+    body.classList.remove('thinking');
+    if (msg.text !== undefined) body.textContent = msg.text;
+  }
+  const summaryEl = card
+    ? card.querySelector(`#summary-${msg.turn_id}`)
+    : document.getElementById(`summary-${msg.turn_id}`);
+  if (summaryEl && msg.summary) {
+    summaryEl.textContent = msg.summary;
+    summaryEl.classList.remove('hidden');
+  }
   enableCollapseChevron(msg.turn_id, card || undefined);
   isStreaming = false;
   currentTurnId = null;
@@ -1819,6 +1830,15 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
       if (body) {
         body.classList.remove('thinking');
         body.textContent = ev.payload?.text || (interrupted ? '(no output before interrupt)' : '');
+      }
+
+      // populate tldr summary
+      if (ev.payload?.summary && card) {
+        const summaryEl = card.querySelector(`#summary-${ev.turn_id}`);
+        if (summaryEl) {
+          summaryEl.textContent = ev.payload.summary;
+          summaryEl.classList.remove('hidden');
+        }
       }
 
       // populate reasoning

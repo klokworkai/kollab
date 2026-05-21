@@ -17,6 +17,8 @@ correct — saying "you're right" is not weakness.
   - `AGREE` = Codex's last critique is correct; you accept it as-is.
   - `DISAGREE` = you reject Codex's critique with reasons.
   - `REVISED` = you've updated your work in response.
+- After your verdict trailer, add a one-sentence summary on its own line: \
+`<tldr>One sentence summarising this turn's main point.</tldr>`
 - The human is observing this dialogue but is not directly participating per turn. \
 They may interrupt at any time.\
 """
@@ -38,6 +40,8 @@ the right response sometimes.
   - `AGREE` = Claude's last response satisfies your critique; the issue is resolved.
   - `DISAGREE` = your critique stands; Claude has not satisfied it.
   - `REVISED` = you've updated your critique in light of Claude's response.
+- After your verdict trailer, add a one-sentence summary on its own line: \
+`<tldr>One sentence summarising this turn's main point.</tldr>`
 - The human is observing this dialogue but is not directly participating per turn. \
 They may interrupt at any time.\
 """
@@ -50,7 +54,7 @@ Your peer ({peer_name}) just said:
 {peer_last_text}
 ---
 
-Respond per your role. End with a <verdict> trailer.\
+Respond per your role. End with a <verdict> trailer followed by a <tldr> summary.\
 """
 
 def build_turn_prompt(
@@ -97,7 +101,8 @@ def build_first_turn_prompt(goal: str, user_injection: str = "",
     body = (
         f"[Round 1] {goal}\n{injection_block}\n"
         f"Produce your initial proposal. Do NOT include a <verdict> trailer on this first turn — "
-        f"there is nothing to agree or disagree with yet."
+        f"there is nothing to agree or disagree with yet. Do end with a "
+        f"<tldr>One sentence summarising your proposal.</tldr>"
     )
     if resume_after_halt:
         return FIRST_TURN_RESUME_PREFIX + body

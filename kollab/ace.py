@@ -21,6 +21,7 @@ from .transcript import TranscriptLog
 from .webhooks import emit
 
 _VERDICT_RE = re.compile(r"<verdict>\s*(AGREE|DISAGREE|REVISED)\s*</verdict>", re.I)
+_TLDR_RE    = re.compile(r"\s*<tldr>\s*(.*?)\s*</tldr>", re.I | re.DOTALL)
 
 log = logging.getLogger("kollab.ace")
 
@@ -51,6 +52,7 @@ class Turn:
     round: int
     text: str = ""
     reasoning: str = ""
+    summary: str = ""
     verdict: Verdict | None = None
     interrupted: bool = False
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -264,6 +266,9 @@ class Session:
 
         turn.ended_at = datetime.now(timezone.utc)
 
+        # Strip <tldr> from turn text before it enters conversation history or logs.
+        turn.text, turn.summary = _parse_tldr(turn.text)
+
         # ------ interrupted path ------
         if self.state == "halted" and interrupted_mid_stream:
             turn.interrupted = True
@@ -300,9 +305,10 @@ class Session:
                    "role": role, "round": self.round,
                    "payload": {"text": turn.text, "reasoning": turn.reasoning,
                                 "verdict": turn.verdict, "duration_ms": duration_ms,
-                                "thread_id": turn_thread_id}})
+                                "summary": turn.summary, "thread_id": turn_thread_id}})
         self._broadcast({"type": "turn_end", "turn_id": turn_id,
                          "verdict": turn.verdict, "duration_ms": duration_ms,
+                         "text": turn.text, "summary": turn.summary,
                          "session_id": self.id})
 
         if self.state == "halted":
@@ -488,3 +494,14 @@ def _parse_verdict(text: str) -> Verdict | None:
     if m:
         return m.group(1).upper()  # type: ignore[return-value]
     return None
+
+
+def _parse_tldr(text: str) -> tuple[str, str]:
+    """Extract <tldr> summary and return (cleaned_text, summary).
+    The <tldr> block is stripped from the text so it never reaches the next agent."""
+    m = _TLDR_RE.search(text)
+    if not m:
+        return text, ""
+    summary = m.group(1).strip()
+    cleaned = _TLDR_RE.sub("", text).rstrip()
+    return cleaned, summary
