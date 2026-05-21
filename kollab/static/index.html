@@ -67,7 +67,7 @@
     <!-- history pane -->
     <aside id="history-pane"
       class="bg-panel border-r border-white/10 flex flex-col shrink-0 overflow-hidden transition-all duration-200"
-      style="width:240px">
+      style="width:240px;position:relative">
       <div class="px-3 py-2 text-xs text-muted uppercase tracking-wider border-b border-white/10 shrink-0 flex items-center justify-between">
         <span>History</span>
         <div class="flex items-center gap-2">
@@ -88,6 +88,13 @@
       <div id="history-list" class="flex-1 overflow-y-auto flex flex-col">
         <p id="history-empty" class="text-muted text-xs px-3 py-4">No sessions yet.</p>
       </div>
+      <div id="history-resize-handle" style="
+        position: absolute;
+        top: 0; right: 0;
+        width: 5px; height: 100%;
+        cursor: col-resize;
+        z-index: 20;
+      "></div>
     </aside>
 
     <!-- main area: tab bar + content + status + input -->

@@ -1,5 +1,19 @@
 'use strict';
 
+(function injectGoalCardStyle() {
+  const s = document.createElement('style');
+  s.textContent = `
+    .kollab-goal-card {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    [data-theme="dark"]  .kollab-goal-card { background: #17171a; }
+    [data-theme="light"] .kollab-goal-card { background: #ffffff; }
+  `;
+  document.head.appendChild(s);
+})();
+
 // ------------------------------------------------------------------ tab state
 
 // Tab: { id, sessionId, goal, state, turnsEl, scrollTop }
@@ -22,6 +36,21 @@ const tabBar        = document.getElementById('tab-bar');
 const btnNewSession = document.getElementById('btn-new-session');
 const historyPane   = document.getElementById('history-pane');
 const historyList   = document.getElementById('history-list');
+
+// ------------------------------------------------------------------ timing helpers
+
+function fmtTime(date) {
+  if (!date) return '';
+  return date.toTimeString().slice(0, 8); // HH:MM:SS
+}
+
+function fmtElapsed(ms) {
+  if (ms < 0) ms = 0;
+  const totalSecs = Math.floor(ms / 1000);
+  const m = Math.floor(totalSecs / 60);
+  const s = totalSecs % 60;
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
 
 // ------------------------------------------------------------------ theme
 
@@ -133,14 +162,52 @@ function applyHistoryCollapse(collapsed) {
   historyPane.style.overflow = 'hidden';
 }
 
+function scrollHistoryToActive() {
+  const sessionId = activeTab()?.sessionId || null;
+  if (!sessionId) return;
+  const row = historyList.querySelector(`[data-session-id="${sessionId}"]`);
+  if (row) row.scrollIntoView({ block: 'nearest' });
+}
+
 document.getElementById('btn-history-toggle').addEventListener('click', () => {
   const collapsed = historyPane.style.width === '0px';
   applyHistoryCollapse(!collapsed);
   localStorage.setItem(HISTORY_KEY, (!collapsed).toString());
+  if (collapsed) scrollHistoryToActive();
 });
 
 const _historySaved = localStorage.getItem(HISTORY_KEY);
 applyHistoryCollapse(_historySaved === null ? true : _historySaved === 'true');
+
+(function initHistoryResize() {
+  const handle = document.getElementById('history-resize-handle');
+  const pane   = document.getElementById('history-pane');
+  if (!handle || !pane) return;
+  const MIN_WIDTH = 240;
+  let dragging = false;
+  let startX = 0;
+  let startW = 0;
+  handle.addEventListener('mousedown', e => {
+    dragging = true;
+    startX = e.clientX;
+    startW = pane.offsetWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const delta = e.clientX - startX;
+    const newW  = Math.max(MIN_WIDTH, startW + delta);
+    pane.style.width = newW + 'px';
+  });
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  });
+})();
 
 // ------------------------------------------------------------------ tab persistence
 
@@ -194,6 +261,12 @@ function createTab(goal, sessionId, state, sessionNumber) {
     sessionNumber: sessionNumber || 0,
     goal: goal || '',
     state: state || 'active',
+    claudeModel: null,
+    codexModel: null,
+    roundLimit: null,
+    startedAt: null,
+    endedAt: null,
+    _timerInterval: null,
     turnsEl: document.createDocumentFragment(),
     scrollTop: 0,
     _nodes: [],
@@ -217,6 +290,11 @@ function closeTab(tabId) {
   saveOpenTabs();
 }
 
+function scrollTabIntoView(tabId) {
+  const tabEl = tabBar.querySelector(`[data-tab-id="${tabId}"]`);
+  if (tabEl) tabEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+}
+
 function switchTab(tabId) {
   if (activeTabId) {
     const outgoing = getTab(activeTabId);
@@ -234,8 +312,36 @@ function switchTab(tabId) {
   dialogue.scrollTop = tab.scrollTop;
   stickyBottom = true;
 
+  // Re-run goal expand overflow check for reconstructed tabs now that nodes are in DOM
+  const goalTextEl = dialogue.querySelector('[id^="goal-text-recon-"]');
+  const goalExpandBtn = dialogue.querySelector('[id^="goal-expand-recon-"]');
+  if (goalTextEl && goalExpandBtn && goalExpandBtn.classList.contains('hidden')) {
+    if (goalTextEl.scrollHeight > goalTextEl.clientHeight + 2) {
+      goalExpandBtn.classList.remove('hidden');
+      if (!goalTextEl.dataset.expandWired) {
+        goalTextEl.dataset.expandWired = '1';
+        let expanded = false;
+        goalExpandBtn.addEventListener('click', () => {
+          expanded = !expanded;
+          if (expanded) {
+            goalTextEl.style.webkitLineClamp = 'unset';
+            goalTextEl.style.display = 'block';
+            goalExpandBtn.textContent = '↑';
+          } else {
+            goalTextEl.style.display = '-webkit-box';
+            goalTextEl.style.webkitLineClamp = '1';
+            goalExpandBtn.textContent = '↓';
+          }
+        });
+      }
+    }
+  }
+
   renderTabBar();
+  renderHistoryList(_allSessions);
+  if (historyPane.style.width !== '0px') scrollHistoryToActive();
   updateInputStrip(tab);
+  scrollTabIntoView(tabId);
 }
 
 function showEmptyState() {
@@ -292,6 +398,7 @@ function renderTabBar() {
     el.appendChild(closeBtn);
     tabBar.appendChild(el);
   }
+  if (activeTabId) scrollTabIntoView(activeTabId);
 }
 
 function handleTabClose(tabId) {
@@ -313,7 +420,9 @@ document.getElementById('btn-confirm-close-no').addEventListener('click', () => 
 document.getElementById('btn-confirm-close-yes').addEventListener('click', async () => {
   document.getElementById('modal-confirm-close').classList.add('hidden');
   if (pendingCloseTabId) {
-    await fetch('/api/session/stop', { method: 'POST' });
+    const closingTab = pendingCloseTabId ? getTab(pendingCloseTabId) : null;
+    const closingSid = closingTab?.sessionId || '';
+    await fetch(`/api/session/stop?session_id=${encodeURIComponent(closingSid)}`, { method: 'POST' });
     closeTab(pendingCloseTabId);
     pendingCloseTabId = null;
   }
@@ -405,6 +514,14 @@ function onServerGone() {
 
 // ------------------------------------------------------------------ event dispatch
 
+function getTabForEvent(msg) {
+  if (msg.session_id) {
+    const t = getTabBySessionId(msg.session_id);
+    if (t) return t;
+  }
+  return activeTab(); // fallback for events without session_id
+}
+
 function handleEvent(msg) {
   switch (msg.type) {
     case 'turn_start':   onTurnStart(msg);   break;
@@ -422,31 +539,6 @@ function handleEvent(msg) {
 let currentTurnId = null;
 let isStreaming = false;
 
-function buildCollapseToggle() {
-  let allCollapsed = false;
-  const bar = document.createElement('div');
-  bar.className = 'flex justify-start';
-  const btn = document.createElement('button');
-  btn.className = 'text-xs text-muted opacity-40 hover:opacity-80 transition';
-  btn.textContent = '− collapse all';
-  btn.addEventListener('click', () => {
-    allCollapsed = !allCollapsed;
-    btn.textContent = allCollapsed ? '+ expand all' : '− collapse all';
-    // toggle all collapsible bodies in the active dialogue
-    dialogue.querySelectorAll('[id^="collapsible-body-"]').forEach(body => {
-      body.style.display = allCollapsed ? 'none' : '';
-    });
-    // sync chevrons
-    dialogue.querySelectorAll('[id^="collapse-"]').forEach(chevron => {
-      if (!chevron.disabled) {
-        chevron.style.transform = allCollapsed ? 'rotate(90deg)' : '';
-        chevron.title = allCollapsed ? 'Expand' : 'Collapse';
-      }
-    });
-  });
-  bar.appendChild(btn);
-  return bar;
-}
 
 function buildTurnCard(msg) {
   const isClaude     = msg.actor === 'claude';
@@ -529,9 +621,19 @@ function onTurnCancel(msg) {
   // (e.g. C-2 after an interrupted C-1) is a fresh response with the
   // directive applied. The partial reasoning/output here is for the
   // viewer's benefit only.
-  const body = document.getElementById(`body-${msg.turn_id}`);
+  const targetTab = getTabForEvent(msg);
+  const isActiveTab = !targetTab || targetTab.id === activeTabId;
+
+  let body, card;
+  if (isActiveTab) {
+    body = document.getElementById(`body-${msg.turn_id}`);
+    card = document.getElementById(`turn-${msg.turn_id}`);
+  } else {
+    card = targetTab._nodes.find(n => n.id === 'turn-' + msg.turn_id) || null;
+    body = card ? card.querySelector(`#body-${msg.turn_id}`) : null;
+  }
+
   if (body) body.classList.remove('thinking');
-  const card = document.getElementById(`turn-${msg.turn_id}`);
   if (card) {
     const note = document.createElement('div');
     note.className = 'text-xs text-muted border-t border-white/10 pt-2 mt-1';
@@ -543,13 +645,45 @@ function onTurnCancel(msg) {
 }
 
 function onTurnStart(msg) {
-  removeWaitingMsg();
   currentTurnId = msg.turn_id;
   isStreaming = true;
-  appendToActiveTab(buildTurnCard(msg));
+  const targetTab = getTabForEvent(msg);
+  if (targetTab && targetTab.id !== activeTabId) {
+    appendNodeToTab(targetTab, buildTurnCard(msg));
+  } else {
+    removeWaitingMsg();
+    appendToActiveTab(buildTurnCard(msg));
+  }
 }
 
 function onTurnChunk(msg) {
+  const targetTab = getTabForEvent(msg);
+  const isActiveTab = !targetTab || targetTab.id === activeTabId;
+
+  if (!isActiveTab) {
+    const card = targetTab._nodes.find(n => n.id === 'turn-' + msg.turn_id);
+    if (!card) return;
+    if (msg.kind === 'text') {
+      const body = card.querySelector(`#body-${msg.turn_id}`);
+      if (body) {
+        if (body.classList.contains('thinking')) {
+          body.classList.remove('thinking');
+          body.textContent = '';
+        }
+        body.textContent += msg.content;
+      }
+    } else if (msg.kind === 'reasoning') {
+      const reasoningEl = card.querySelector(`#reasoning-${msg.turn_id}`);
+      const pre = card.querySelector(`#reasoning-body-${msg.turn_id}`);
+      if (reasoningEl && pre) {
+        reasoningEl.classList.remove('hidden');
+        if (reasoningEl.tagName === 'DETAILS') reasoningEl.open = true;
+        pre.textContent += msg.content;
+      }
+    }
+    return;
+  }
+
   if (msg.turn_id !== currentTurnId) return;
   if (msg.kind === 'text') {
     const body = document.getElementById(`body-${msg.turn_id}`);
@@ -573,26 +707,40 @@ function onTurnChunk(msg) {
 }
 
 function onTurnEnd(msg) {
-  applyVerdict(msg.turn_id, msg.verdict);
-  if (msg.thread_id) {
-    const badge = document.getElementById(`badge-${msg.turn_id}`);
+  const targetTab = getTabForEvent(msg);
+  const isActiveTab = !targetTab || targetTab.id === activeTabId;
+  const card = !isActiveTab && targetTab
+    ? targetTab._nodes.find(n => n.id === 'turn-' + msg.turn_id) || null
+    : null;
+
+  applyVerdict(msg.turn_id, msg.verdict, card || undefined);
+
+  if (msg.session_id) {
+    const badge = card
+      ? card.querySelector(`#badge-${msg.turn_id}`)
+      : document.getElementById(`badge-${msg.turn_id}`);
     if (badge) {
-      const short = msg.thread_id.length > 14 ? msg.thread_id.slice(0, 14) + '\u2026' : msg.thread_id;
+      const short = msg.session_id.length > 14 ? msg.session_id.slice(0, 14) + '\u2026' : msg.session_id;
       badge.textContent = `${msg.turn_id} \u00b7 ${short}`;
-      badge.title = msg.thread_id;
+      badge.title = msg.session_id;
     }
   }
-  const body = document.getElementById(`body-${msg.turn_id}`);
+  const body = card
+    ? card.querySelector(`#body-${msg.turn_id}`)
+    : document.getElementById(`body-${msg.turn_id}`);
   if (body) body.classList.remove('thinking');
-  enableCollapseChevron(msg.turn_id);
+  enableCollapseChevron(msg.turn_id, card || undefined);
   isStreaming = false;
   currentTurnId = null;
-  scrollIfSticky();
+  if (isActiveTab) scrollIfSticky();
 }
 
 // ------------------------------------------------------------------ state
 
 function onState(msg) {
+  const targetTab = getTabForEvent(msg);
+  const isActiveTab = !targetTab || targetTab.id === activeTabId;
+
   const stateLabels = {
     idle:          'idle',
     fanning_out:   'sending goal to both agents\u2026',
@@ -602,32 +750,44 @@ function onState(msg) {
     halted:        'halted \u2014 click Resume to continue',
     done:          'session complete',
   };
-  statusStrip.textContent = stateLabels[msg.state] || msg.state;
 
   const sessionRunning = ['claude_turn', 'codex_turn', 'fanning_out'].includes(msg.state);
-  btnStop.classList.toggle('hidden', !sessionRunning);
-  if (sessionRunning) {
-    btnStop.disabled = false;
-    btnStop.textContent = 'Stop';
-    btnStop.classList.remove('opacity-50');
-  }
-  btnResume.classList.toggle('hidden', msg.state !== 'halted');
 
-  const tab = activeTab();
+  if (isActiveTab) {
+    statusStrip.textContent = stateLabels[msg.state] || msg.state;
+    btnStop.classList.toggle('hidden', !sessionRunning);
+    if (sessionRunning) {
+      btnStop.disabled = false;
+      btnStop.textContent = 'Stop';
+      btnStop.classList.remove('opacity-50');
+    }
+    btnResume.classList.toggle('hidden', msg.state !== 'halted');
+  }
+
+  const tab = targetTab || activeTab();
   if (tab) {
     // Capture session_number from fanning_out broadcast (first state event for a new session)
     if (msg.state === 'fanning_out' && msg.session_number) {
       tab.sessionNumber = msg.session_number;
       tab.sessionId = tab.sessionId || msg.session_id || null;
-      // Update goal card number label now that we have it
-      const goalNumEl = document.getElementById('goal-session-num');
-      if (goalNumEl) goalNumEl.textContent = `Session #${msg.session_number}`;
+      if (msg.claude_model) tab.claudeModel = msg.claude_model;
+      if (msg.codex_model)  tab.codexModel  = msg.codex_model;
+      if (msg.round_limit)  tab.roundLimit  = msg.round_limit;
+      if (isActiveTab) {
+        // Update goal card number label now that we have it
+        const goalNumEl = document.getElementById('goal-session-num');
+        if (goalNumEl) goalNumEl.textContent = `Session #${msg.session_number}`;
+        const goalMetaEl = document.getElementById('goal-meta-models');
+        if (goalMetaEl && msg.claude_model && msg.codex_model) {
+          goalMetaEl.textContent = `Claude: ${msg.claude_model} · Codex: ${msg.codex_model} · rounds: ${msg.round_limit ?? '?'}`;
+        }
+      }
       renderTabBar();
     }
     if (msg.state === 'halted') tab.state = 'halted';
     else if (msg.state === 'done') tab.state = 'done';
     else if (sessionRunning) tab.state = 'active';
-    updateInputStrip(tab);
+    if (tab.id === activeTabId) updateInputStrip(tab);
   }
 }
 
@@ -645,14 +805,14 @@ function buildExportButton(sessionId, sessionNumber) {
 function onSessionDone(msg) {
   const reasonsFull = {
     convergence: '\u2713 Both agents reached agreement.',
-    round_limit: '\u26a0 Round limit reached.',
+    round_limit: `\u26a0 Round limit reached${msg.round_limit ? ' (' + msg.round_limit + ' rounds)' : ''}.`,
     token_limit: '\u26a0 Token budget exhausted.',
     halted:      '\u23f9 Session halted.',
     expired:     '\u23f3 Stopped / expired.',
   };
   const reasonsShort = {
     convergence: '\u2713 Converged',
-    round_limit: '\u26a0 Round limit',
+    round_limit: `\u26a0 Round limit${msg.round_limit ? ' (' + msg.round_limit + ')' : ''}`,
     token_limit: '\u26a0 Token limit',
     halted:      '\u23f9 Halted',
     expired:     '\u23f3 Expired',
@@ -664,7 +824,9 @@ function onSessionDone(msg) {
     halted: 'text-muted',
     expired: 'text-muted',
   };
-  const tab = activeTab();
+  const targetTab = getTabForEvent(msg);
+  const isActiveTab = !targetTab || targetTab.id === activeTabId;
+  const tab = targetTab || activeTab();
 
   // Defense in depth: if onState/fanning_out or the POST /api/session
   // response did not populate these (race conditions on fast sessions),
@@ -672,6 +834,17 @@ function onSessionDone(msg) {
   if (tab) {
     if (msg.session_id && !tab.sessionId) tab.sessionId = msg.session_id;
     if (msg.session_number && !tab.sessionNumber) tab.sessionNumber = msg.session_number;
+    tab.endedAt = new Date();
+    if (tab._timerInterval) { clearInterval(tab._timerInterval); tab._timerInterval = null; }
+  }
+
+  if (!isActiveTab) {
+    // Background session done: update state but skip all live DOM mutations
+    if (tab) tab.state = 'done';
+    renderTabBar();
+    saveOpenTabs();
+    loadHistory();
+    return;
   }
 
   // Update live goal card: inject verdict pill + read-only label + export
@@ -695,6 +868,13 @@ function onSessionDone(msg) {
     parent.replaceChild(metaRow, goalNumEl);
   }
 
+  if (tab && tab.startedAt && tab.endedAt && isActiveTab) {
+    const endedEl   = document.getElementById(`goal-ended-${tab.id}`);
+    const elapsedEl = document.getElementById(`goal-elapsed-${tab.id}`);
+    if (endedEl)   { endedEl.textContent = 'ended ' + fmtTime(tab.endedAt); endedEl.classList.remove('hidden'); }
+    if (elapsedEl) elapsedEl.textContent = fmtElapsed(tab.endedAt - tab.startedAt);
+  }
+
   // Bottom banner: reason text + export button
   const banner = document.createElement('div');
   banner.className = 'rounded-lg border border-white/20 bg-userPanel px-4 py-3 text-center text-muted flex items-center justify-center gap-3';
@@ -702,6 +882,12 @@ function onSessionDone(msg) {
   bannerText.textContent = reasonsFull[msg.reason] || `Session ended: ${msg.reason}`;
   banner.appendChild(bannerText);
   if (tab && tab.sessionId) banner.appendChild(buildExportButton(tab.sessionId, tab.sessionNumber));
+  if (tab && tab.startedAt && tab.endedAt) {
+    const timingSpan = document.createElement('span');
+    timingSpan.className = 'font-mono text-xs text-muted opacity-40 ml-auto';
+    timingSpan.textContent = `started ${fmtTime(tab.startedAt)} · ended ${fmtTime(tab.endedAt)} · ${fmtElapsed(tab.endedAt - tab.startedAt)}`;
+    banner.appendChild(timingSpan);
+  }
   appendToActiveTab(banner);
 
   if (tab) tab.state = 'done';
@@ -733,7 +919,9 @@ btnStop.addEventListener('click', async () => {
   btnStop.disabled = true;
   btnStop.textContent = 'Stopping\u2026';
   btnStop.classList.add('opacity-50');
-  const res = await fetch('/api/session/stop', { method: 'POST' });
+  const tab = activeTab();
+  const sid = tab?.sessionId || '';
+  const res = await fetch(`/api/session/stop?session_id=${encodeURIComponent(sid)}`, { method: 'POST' });
   if (!res.ok) {
     btnStop.disabled = false;
     btnStop.textContent = 'Stop';
@@ -750,9 +938,10 @@ btnResume.addEventListener('click', () => {
 });
 
 function doResume() {
-  fetch('/api/session/resume', { method: 'POST' });
-  btnResume.classList.add('hidden');
   const tab = activeTab();
+  const sid = tab?.sessionId || '';
+  fetch(`/api/session/resume?session_id=${encodeURIComponent(sid)}`, { method: 'POST' });
+  btnResume.classList.add('hidden');
   if (tab) { tab.state = 'active'; updateInputStrip(tab); }
 }
 
@@ -796,7 +985,9 @@ async function sendInput() {
   `;
   appendToActiveTab(card);
 
-  await fetch('/api/session/input', {
+  const inputTab = activeTab();
+  const inputSid = inputTab?.sessionId || '';
+  await fetch(`/api/session/input?session_id=${encodeURIComponent(inputSid)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, target }),
@@ -864,16 +1055,6 @@ document.getElementById('btn-close-all-tabs').addEventListener('click', () => {
 });
 
 btnNewSession.addEventListener('click', async () => {
-  const runningTab = tabs.find(t => t.state === 'active');
-  if (runningTab) {
-    const toast = document.createElement('div');
-    toast.className = 'fixed bottom-20 left-1/2 -translate-x-1/2 bg-panel border border-white/20 rounded px-4 py-2 text-xs text-muted z-50';
-    toast.textContent = 'A session is already running. Stop it or wait for it to finish.';
-    document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 3000);
-    return;
-  }
-
   let cfg = {};
   try {
     const res = await fetch('/api/config');
@@ -929,16 +1110,76 @@ document.getElementById('btn-modal-start').addEventListener('click', async () =>
   switchTab(tab.id);
 
   const goalCard = document.createElement('div');
-  goalCard.className = 'rounded-lg border border-white/10 bg-userPanel p-3 flex flex-col gap-1';
+  goalCard.className = 'kollab-goal-card rounded-lg border border-white/10 bg-panel p-3 flex flex-col gap-1.5';
   goalCard.innerHTML = `
-    <div class="flex items-center justify-between">
-      <div class="text-xs text-muted uppercase">goal</div>
-      <span id="goal-session-num" class="text-xs text-muted opacity-50"></span>
+    <div class="flex items-center gap-2 min-w-0">
+      <span class="text-xs text-muted uppercase shrink-0">goal</span>
+      <span id="goal-text-${tab.id}" class="text-xs text-user flex-1 overflow-hidden" style="display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden;">${escHtml(goal)}</span>
+      <button id="goal-expand-${tab.id}" class="text-xs text-muted opacity-40 hover:opacity-80 shrink-0 hidden">↓</button>
+      <span id="goal-session-num" class="text-xs text-muted opacity-50 shrink-0"></span>
     </div>
-    <pre class="whitespace-pre-wrap text-user">${escHtml(goal)}</pre>
+    <div class="flex items-center justify-between gap-2 min-w-0">
+      <div class="flex items-center gap-3 min-w-0">
+        <button id="collapse-toggle-${tab.id}" class="text-xs text-muted opacity-40 hover:opacity-80 transition shrink-0">− collapse all</button>
+        <span id="goal-meta-models" class="text-xs text-muted opacity-40 truncate"></span>
+      </div>
+      <div id="goal-timing-${tab.id}" class="flex items-center gap-2 font-mono text-xs text-muted opacity-40 shrink-0">
+        <span id="goal-started-${tab.id}"></span>
+        <span id="goal-ended-${tab.id}" class="hidden"></span>
+        <span id="goal-elapsed-${tab.id}"></span>
+      </div>
+    </div>
   `;
   appendToActiveTab(goalCard);
-  appendToActiveTab(buildCollapseToggle());
+
+  tab.startedAt = new Date();
+  const startedSpan = document.getElementById(`goal-started-${tab.id}`);
+  if (startedSpan) startedSpan.textContent = 'started ' + fmtTime(tab.startedAt);
+  tab._timerInterval = setInterval(() => {
+    const el = document.getElementById(`goal-elapsed-${tab.id}`);
+    if (el) el.textContent = '⏱ ' + fmtElapsed(Date.now() - tab.startedAt.getTime());
+  }, 1000);
+
+  (function wireCollapseToggle(tabId) {
+    let allCollapsed = false;
+    const btn = document.getElementById(`collapse-toggle-${tabId}`);
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      allCollapsed = !allCollapsed;
+      btn.textContent = allCollapsed ? '+ expand all' : '− collapse all';
+      dialogue.querySelectorAll('[id^="collapsible-body-"]').forEach(body => {
+        body.style.display = allCollapsed ? 'none' : '';
+      });
+      dialogue.querySelectorAll('[id^="collapse-"]:not([id^="collapse-toggle"])').forEach(chevron => {
+        if (!chevron.disabled) {
+          chevron.style.transform = allCollapsed ? 'rotate(90deg)' : '';
+          chevron.title = allCollapsed ? 'Expand' : 'Collapse';
+        }
+      });
+    });
+  })(tab.id);
+
+  requestAnimationFrame(() => {
+    const textEl = document.getElementById(`goal-text-${tab.id}`);
+    const expandBtn = document.getElementById(`goal-expand-${tab.id}`);
+    if (!textEl || !expandBtn) return;
+    if (textEl.scrollHeight > textEl.clientHeight + 2) {
+      expandBtn.classList.remove('hidden');
+      let expanded = false;
+      expandBtn.addEventListener('click', () => {
+        expanded = !expanded;
+        if (expanded) {
+          textEl.style.webkitLineClamp = 'unset';
+          textEl.style.display = 'block';
+          expandBtn.textContent = '↑';
+        } else {
+          textEl.style.display = '-webkit-box';
+          textEl.style.webkitLineClamp = '1';
+          expandBtn.textContent = '↓';
+        }
+      });
+    }
+  });
 
   waitingMsgEl = document.createElement('p');
   waitingMsgEl.className = 'text-muted text-center mt-16';
@@ -1357,6 +1598,7 @@ function renderHistoryList(sessions) {
 
   const pillStyles = { convergence: 'text-verdictAgree', round_limit: 'text-verdictRevised', halted: 'text-muted', expired: 'text-muted' };
   const pillLabels = { convergence: '\u2713 converged', round_limit: '\u26a0 round limit', halted: '\u23f9 halted', expired: '\u23f3 expired' };
+  const activeSessionId = activeTab()?.sessionId || null;
 
   for (const s of filtered) {
     const row = document.createElement('div');
@@ -1394,6 +1636,11 @@ function renderHistoryList(sessions) {
     row.appendChild(goalEl);
     row.appendChild(metaEl);
     row.appendChild(delBtn);
+    if (activeSessionId && s.session_id === activeSessionId) {
+      row.style.borderLeft = '2px solid #cc6600';
+      row.style.paddingLeft = 'calc(0.75rem - 2px)';
+      row.style.backgroundColor = 'rgba(204, 102, 0, 0.06)';
+    }
     row.addEventListener('click', () => openHistorySession(s.session_id, s.goal, s.session_number));
     historyList.appendChild(row);
   }
@@ -1472,6 +1719,10 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
   const cardMap = {}; // turn_id -> card DOM node
   let _sessionId = null;
   let _sessionNumber = fallbackSessionNumber || 0;
+  let _claudeModel = '';
+  let _codexModel  = '';
+  let _roundLimit  = null;
+  let _startedAt   = null;
   let goalCard = null; // hoisted so session_end can update it
 
   for (const ev of events) {
@@ -1481,20 +1732,78 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
       const sessionNum = ev.payload?.session_number || fallbackSessionNumber || 0;
       _sessionId = ev.session_id || null;
       _sessionNumber = sessionNum;
+      _claudeModel = ev.payload?.claude_model || '';
+      _codexModel  = ev.payload?.codex_model  || '';
+      _roundLimit  = ev.payload?.round_limit  ?? null;
+      _startedAt   = ev.payload?.started_at ? new Date(ev.payload.started_at) : null;
+      const metaModels = (_claudeModel && _codexModel)
+        ? `Claude: ${_claudeModel} · Codex: ${_codexModel} · rounds: ${_roundLimit ?? '?'}`
+        : '';
       goalCard = document.createElement('div');
-      goalCard.className = 'rounded-lg border border-white/10 bg-userPanel p-3 flex flex-col gap-1';
+      goalCard.className = 'kollab-goal-card rounded-lg border border-white/10 bg-panel p-3 flex flex-col gap-1.5';
       goalCard.id = 'recon-goal-card';
       goalCard.innerHTML = `
-        <div class="flex items-center justify-between">
-          <div class="text-xs text-muted uppercase">goal</div>
-          <div class="flex items-center gap-2" id="recon-goal-meta">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="text-xs text-muted uppercase shrink-0">goal</span>
+          <span id="goal-text-recon-${_sessionId || 'x'}" class="text-xs text-user flex-1 overflow-hidden" style="display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden;">${escHtml(ev.payload?.goal || '')}</span>
+          <button id="goal-expand-recon-${_sessionId || 'x'}" class="text-xs text-muted opacity-40 hover:opacity-80 shrink-0 hidden">↓</button>
+          <div class="flex items-center gap-2 shrink-0" id="recon-goal-meta">
             ${sessionNum ? `<span class="text-xs text-muted opacity-50">Session #${sessionNum}</span>` : ''}
           </div>
         </div>
-        <pre class="whitespace-pre-wrap text-user">${escHtml(ev.payload?.goal || '')}</pre>
+        <div class="flex items-center justify-between gap-2 min-w-0">
+          <div class="flex items-center gap-3 min-w-0">
+            <button id="collapse-toggle-recon" class="text-xs text-muted opacity-40 hover:opacity-80 transition shrink-0">− collapse all</button>
+            ${metaModels ? `<span class="text-xs text-muted opacity-40 truncate">${escHtml(metaModels)}</span>` : '<span></span>'}
+          </div>
+          <div class="flex items-center gap-2 font-mono text-xs text-muted opacity-40 shrink-0" id="recon-goal-timing">
+            ${_startedAt ? `<span>started ${fmtTime(_startedAt)}</span>` : ''}
+          </div>
+        </div>
       `;
       appendFn(goalCard);
-      appendFn(buildCollapseToggle());
+
+      const reconToggleBtn = goalCard.querySelector('#collapse-toggle-recon');
+      if (reconToggleBtn) {
+        let allCollapsed = false;
+        reconToggleBtn.addEventListener('click', () => {
+          allCollapsed = !allCollapsed;
+          reconToggleBtn.textContent = allCollapsed ? '+ expand all' : '− collapse all';
+          const container = goalCard.parentNode;
+          if (!container) return;
+          container.querySelectorAll('[id^="collapsible-body-"]').forEach(body => {
+            body.style.display = allCollapsed ? 'none' : '';
+          });
+          container.querySelectorAll('[id^="collapse-"]:not([id^="collapse-toggle"])').forEach(chevron => {
+            if (!chevron.disabled) {
+              chevron.style.transform = allCollapsed ? 'rotate(90deg)' : '';
+              chevron.title = allCollapsed ? 'Expand' : 'Collapse';
+            }
+          });
+        });
+      }
+
+      requestAnimationFrame(() => {
+        const textEl = goalCard.querySelector(`#goal-text-recon-${_sessionId || 'x'}`);
+        const expandBtn = goalCard.querySelector(`#goal-expand-recon-${_sessionId || 'x'}`);
+        if (!textEl || !expandBtn) return;
+        if (textEl.scrollHeight > textEl.clientHeight + 2) {
+          expandBtn.classList.remove('hidden');
+          let expanded = false;
+          expandBtn.addEventListener('click', () => {
+            expanded = !expanded;
+            if (expanded) {
+              textEl.style.webkitLineClamp = 'unset';
+              textEl.style.display = 'block';
+              expandBtn.textContent = '↑';
+            } else {
+              textEl.style.display = '-webkit-box';
+              textEl.style.webkitLineClamp = '1';
+              expandBtn.textContent = '↓';
+            }
+          });
+        }
+      });
 
     } else if (kind === 'turn_start') {
       const card = buildTurnCard({ turn_id: ev.turn_id, actor: ev.actor, role: ev.role });
@@ -1523,14 +1832,15 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
         }
       }
 
-      // badge
-      const threadId = ev.payload?.thread_id || ev.thread_id || '';
-      if (threadId && card) {
+      // badge: use kollab session_id (consistent across all turn cards and matches JSONL filename)
+      // thread_id stays in the JSONL payload for debugging but is not shown in the UI.
+      const badgeSessionId = _sessionId || ev.session_id || '';
+      if (badgeSessionId && card) {
         const badge = card.querySelector(`#badge-${ev.turn_id}`);
         if (badge) {
-          const short = threadId.length > 14 ? threadId.slice(0, 14) + '\u2026' : threadId;
+          const short = badgeSessionId.length > 14 ? badgeSessionId.slice(0, 14) + '\u2026' : badgeSessionId;
           badge.textContent = `${ev.turn_id} \u00b7 ${short}`;
-          badge.title = threadId;
+          badge.title = badgeSessionId;
         }
       }
 
@@ -1560,21 +1870,21 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
       appendFn(userCard);
 
     } else if (kind === 'session_end') {
+      const reason = ev.payload?.reason || '';
       const reasons = {
         convergence: '\u2713 Converged',
-        round_limit: '\u26a0 Round limit',
+        round_limit: `\u26a0 Round limit${_roundLimit ? ' (' + _roundLimit + ')' : ''}`,
         token_limit: '\u26a0 Token limit',
         halted:      '\u23f9 Halted',
         expired:     '\u23f3 Expired',
       };
       const reasonsFull = {
         convergence: '\u2713 Both agents reached agreement.',
-        round_limit: '\u26a0 Round limit reached.',
+        round_limit: `\u26a0 Round limit reached${_roundLimit ? ' (' + _roundLimit + ' rounds)' : ''}.`,
         token_limit: '\u26a0 Token budget exhausted.',
         halted:      '\u23f9 Session halted.',
         expired:     '\u23f3 Stopped / expired.',
       };
-      const reason = ev.payload?.reason || '';
 
       // Update Goal card to show verdict + readonly pill + export
       const goalMeta = goalCard ? goalCard.querySelector('#recon-goal-meta') : null;
@@ -1597,6 +1907,19 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
         if (_sessionId) goalMeta.appendChild(buildExportButton(_sessionId, _sessionNumber));
       }
 
+      const reconTiming = goalCard ? goalCard.querySelector('#recon-goal-timing') : null;
+      if (reconTiming && ev.ts) {
+        const endedAt = new Date(ev.ts);
+        const endedSpan = document.createElement('span');
+        endedSpan.textContent = 'ended ' + fmtTime(endedAt);
+        reconTiming.appendChild(endedSpan);
+        if (_startedAt) {
+          const elapsedSpan = document.createElement('span');
+          elapsedSpan.textContent = fmtElapsed(endedAt - _startedAt);
+          reconTiming.appendChild(elapsedSpan);
+        }
+      }
+
       // Bottom session-end banner: reason text + export button
       const banner = document.createElement('div');
       banner.className = 'rounded-lg border border-white/20 bg-userPanel px-4 py-3 text-center text-muted flex items-center justify-center gap-3';
@@ -1604,6 +1927,13 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
       bannerText.textContent = reasonsFull[reason] || `Session ended: ${reason}`;
       banner.appendChild(bannerText);
       if (_sessionId) banner.appendChild(buildExportButton(_sessionId, _sessionNumber));
+      if (_startedAt && ev.ts) {
+        const endedAt = new Date(ev.ts);
+        const timingSpan = document.createElement('span');
+        timingSpan.className = 'font-mono text-xs text-muted opacity-40 ml-auto';
+        timingSpan.textContent = `started ${fmtTime(_startedAt)} · ended ${fmtTime(endedAt)} · ${fmtElapsed(endedAt - _startedAt)}`;
+        banner.appendChild(timingSpan);
+      }
       appendFn(banner);
     }
   }

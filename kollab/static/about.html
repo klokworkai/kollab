@@ -280,15 +280,15 @@
         <p>GitHub MCP is coming in a future release.</p>
       </div>
 
-      <!-- Turn cards — placeholder -->
+      <!-- Turn cards -->
       <div class="how-to-item">
         <h3>Turn cards</h3>
-        <div class="placeholder" style="height:160px;margin-bottom:0.5rem">[ screenshot: turn cards — coming ]</div>
-        <p class="caption">Claude turn cards have an orange border; Codex cards have a blue border.</p>
+        <img src="/static/assets/turncards.png" alt="Turn cards — Claude PROPOSAL and Codex DISAGREE" class="screenshot" />
+        <p class="caption">A Claude turn (orange, PROPOSAL) and a Codex turn (blue, DISAGREE). Both show model name, turn ID, session badge, and verdict pill. Claude's reasoning block is expanded; Codex shows its reasoning note above the result.</p>
         <p>
           Each agent response is a turn card. <span style="color:#cc6600">Orange border = Claude (producer)</span>,
           <span style="color:#3b6fb3">blue border = Codex (critic)</span>.
-          The card header shows the actor name, role, turn ID (C-1, X-1, C-2…), a thread session badge,
+          The card header shows the actor name, role, model name, turn ID (C-1, X-1, C-2…), session badge,
           and the verdict pill. Claude's first card always shows <span class="pill pill-proposal">PROPOSAL</span>.
           Subsequent cards show <span class="pill pill-agree">AGREE</span>,
           <span class="pill pill-disagree">DISAGREE</span>, or <span class="pill pill-revised">REVISED</span>
@@ -297,21 +297,21 @@
         <p>
           The <strong>&#8250; chevron</strong> on the left of each card header collapses the entire card body.
           If Claude reasoned before responding, a collapsible <strong>Reasoning</strong> block appears above
-          the result — it's expanded by default so you can follow Claude's thinking as it streams in.
+          the result — expanded by default so you can follow Claude's thinking as it streams in.
           Use the <strong>− collapse all</strong> toggle below the goal card to collapse every card at once,
           useful for scanning verdicts across a long session.
         </p>
       </div>
 
-      <!-- Stop & Resume — placeholder -->
+      <!-- Stop & Resume -->
       <div class="how-to-item">
         <h3>Stop &amp; Resume</h3>
-        <div class="placeholder" style="height:80px;margin-bottom:0.5rem">[ screenshot: Stop / Resume — coming ]</div>
-        <p class="caption">The Stop button appears while a session is running. Resume appears when halted.</p>
+        <img src="/static/assets/stopped-directive-input.png" alt="Halted session — status strip and input bar with directive" class="screenshot" />
+        <p class="caption">Session halted mid-stream. The status strip reads "halted — click Resume to continue". The input bar is unlocked with target selector set to → Claude, Codex and a directive typed in. Resume button is green and ready.</p>
         <p>
           <strong>Stop</strong> halts the session at any point — even mid-stream while an agent is responding.
-          The partial output stays visible in the UI as an observable artifact, but it is never fed back to
-          either agent. The session stays open and can be resumed.
+          The partial output stays visible in the UI as an observable artifact marked <strong>⏸ interrupted</strong>,
+          but it is never fed back to either agent. The session stays open and can be resumed.
         </p>
         <p>
           On <strong>Resume</strong>: if you have something to say to an agent before continuing, select a
@@ -321,18 +321,21 @@
         </p>
       </div>
 
-      <!-- Directives — placeholder -->
+      <!-- Directives -->
       <div class="how-to-item">
         <h3>Directives</h3>
-        <div class="placeholder" style="height:60px;margin-bottom:0.5rem">[ screenshot: directive input — coming ]</div>
-        <p class="caption">The input bar with target selector — only enabled when a session is halted.</p>
+        <img src="/static/assets/directivecard-ackowledged.png" alt="Directive card and Claude acknowledging it in reasoning" class="screenshot" />
+        <p class="caption">The DIRECTIVE → CLAUDE, CODEX card rendered inline in the session. Claude's C-2 reasoning block shows the directive highlighted — "The user has clarified that the function does not need to be recursive" — confirming the agent received and understood it.</p>
+        <img src="/static/assets/codex-agree-after-directive.png" alt="Codex AGREE after directive" class="screenshot" style="margin-top:0.75rem" />
+        <p class="caption">Codex AGREEs on X-1 after Claude revised per the directive. Codex's reasoning confirms it evaluated Claude's response against the directive: "Claude's solution matches the directive: it is iterative, not recursive."</p>
         <p>
           While a session is halted, the input bar unlocks. Select a target — <strong>→ Claude</strong>,
           <strong>→ Codex</strong>, or <strong>→ Claude, Codex</strong> — then type your instruction and
           click Send (or press Enter). The directive is injected into that agent's next turn prompt only;
           the other agent doesn't see it unless you target both.
           Directives appear in the session as <code>DIRECTIVE → CLAUDE</code> cards, visible in both
-          live and read-only history views.
+          live and read-only history views. The agent's reasoning block will show the directive being
+          acknowledged before it generates its response.
         </p>
       </div>
 

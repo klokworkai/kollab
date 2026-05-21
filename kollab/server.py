@@ -20,11 +20,11 @@ app = FastAPI(title="kollab")
 _static_dir = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
-# --- global state (single session at a time) ---
+# --- global state ---
 _cfg: Config = load_config()
-_session: Session | None = None
+_sessions: dict[str, Session] = {}
+_session_tasks: dict[str, asyncio.Task] = {}
 _ws_clients: list[WebSocket] = []
-_session_task: asyncio.Task | None = None
 
 _LOG_PATH = Path("~/.kollab/kollab.log").expanduser()
 _file_handler: logging.FileHandler | None = None
@@ -144,29 +144,27 @@ class UserInputBody(BaseModel):
 
 
 @app.get("/api/session", dependencies=[Depends(require_api_key)])
-async def get_session_state() -> dict:
-    if _session is None:
+async def get_session_state(session_id: str | None = None) -> dict:
+    session = _sessions.get(session_id) if session_id else (list(_sessions.values())[-1] if _sessions else None)
+    if session is None:
         return {"session_id": None, "state": "idle"}
     started_at = None
-    if _session.turns:
-        ts = _session.turns[0].started_at
+    if session.turns:
+        ts = session.turns[0].started_at
         started_at = ts.isoformat().replace("+00:00", "Z")
     return {
-        "session_id": _session.id,
-        "session_number": _session.session_number,
-        "state": _session.state,
-        "round": _session.round,
-        "goal": _session.goal,
-        "turns_completed": sum(1 for t in _session.turns if not t.interrupted),
+        "session_id": session.id,
+        "session_number": session.session_number,
+        "state": session.state,
+        "round": session.round,
+        "goal": session.goal,
+        "turns_completed": sum(1 for t in session.turns if not t.interrupted),
         "started_at": started_at,
     }
 
 
 @app.post("/api/session", dependencies=[Depends(require_api_key)])
 async def start_session(body: StartSessionBody) -> dict:
-    global _session, _session_task
-    if _session is not None and _session.state not in ("done", "halted"):
-        raise HTTPException(status_code=409, detail="A session is already active.")
     def _resolve(model: str | None) -> str | None:
         if model is None:
             return None
@@ -179,39 +177,42 @@ async def start_session(body: StartSessionBody) -> dict:
         claude_model=_resolve(body.claude_model),
         codex_model=_resolve(body.codex_model),
     )
-    _session = Session(_cfg, _broadcast, overrides=overrides,
-                        session_number=next_session_number(_cfg))
-    _session_task = asyncio.create_task(_run_session(body.goal))
+    session = Session(_cfg, _broadcast, overrides=overrides,
+                      session_number=next_session_number(_cfg))
+    _sessions[session.id] = session
+    _session_tasks[session.id] = asyncio.create_task(_run_session(session.id, body.goal))
     return {
-        "session_id": _session.id,
-        "session_number": _session.session_number,
+        "session_id": session.id,
+        "session_number": session.session_number,
         "state": "fanning_out",
     }
 
 
 @app.post("/api/session/stop", dependencies=[Depends(require_api_key)])
-async def stop_session() -> dict:
-    if _session is None:
-        raise HTTPException(status_code=404, detail="No active session.")
-    _session.stop()
+async def stop_session(session_id: str) -> dict:
+    session = _sessions.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="No session with that ID.")
+    session.stop()
     return {"ok": True}
 
 
 @app.post("/api/session/resume", dependencies=[Depends(require_api_key)])
-async def resume_session() -> dict:
-    global _session_task
-    if _session is None:
-        raise HTTPException(status_code=404, detail="No session.")
-    await _session.resume()
-    _session_task = asyncio.create_task(_resume_loop())
+async def resume_session(session_id: str) -> dict:
+    session = _sessions.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="No session with that ID.")
+    await session.resume()
+    _session_tasks[session_id] = asyncio.create_task(_resume_loop(session_id))
     return {"ok": True}
 
 
 @app.post("/api/session/input", dependencies=[Depends(require_api_key)])
-async def session_input(body: UserInputBody) -> dict:
-    if _session is None:
-        raise HTTPException(status_code=404, detail="No active session.")
-    await _session.handle_user_input(body.text, body.target)
+async def session_input(body: UserInputBody, session_id: str) -> dict:
+    session = _sessions.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="No session with that ID.")
+    await session.handle_user_input(body.text, body.target)
     return {"ok": True}
 
 
@@ -233,39 +234,49 @@ async def websocket_endpoint(ws: WebSocket) -> None:
 
 # ------------------------------------------------------------------ session runner
 
-async def _run_session(goal: str) -> None:
-    assert _session is not None
+async def _run_session(session_id: str, goal: str) -> None:
+    session = _sessions.get(session_id)
+    if session is None:
+        return
     try:
-        await _session.start(goal)
-        while _session.state in ("claude_turn", "codex_turn"):
-            await _session.run_turn()
+        await session.start(goal)
+        while session.state in ("claude_turn", "codex_turn"):
+            await session.run_turn()
     except Exception as exc:
         _broadcast({"type": "error", "message": str(exc)})
     finally:
-        if _session.state != "halted":
-            await _session.close()
+        if session.state != "halted":
+            await session.close()
+            _sessions.pop(session_id, None)
+            _session_tasks.pop(session_id, None)
 
 
-async def _resume_loop() -> None:
-    assert _session is not None
+async def _resume_loop(session_id: str) -> None:
+    session = _sessions.get(session_id)
+    if session is None:
+        return
     try:
-        while _session.state in ("claude_turn", "codex_turn"):
-            await _session.run_turn()
+        while session.state in ("claude_turn", "codex_turn"):
+            await session.run_turn()
     except Exception as exc:
         _broadcast({"type": "error", "message": str(exc)})
     finally:
-        if _session.state != "halted":
-            await _session.close()
+        if session.state != "halted":
+            await session.close()
+            _sessions.pop(session_id, None)
+            _session_tasks.pop(session_id, None)
 
 
 @app.post("/api/shutdown", dependencies=[Depends(require_api_key)])
 async def shutdown() -> dict:
     import signal
     import os
-    if _session is not None:
-        if _session.state not in ("done", "halted"):
-            _session.stop()
-        await _session.close()
+    for session in list(_sessions.values()):
+        if session.state not in ("done", "halted"):
+            session.stop()
+        await session.close()
+    _sessions.clear()
+    _session_tasks.clear()
     asyncio.get_event_loop().call_later(0.5, lambda: os.kill(os.getpid(), signal.SIGTERM))
     return {"ok": True}
 

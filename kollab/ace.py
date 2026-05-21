@@ -90,6 +90,8 @@ class Session:
             mcp_filesystem_enabled=cfg.mcp_filesystem_enabled,
             mcp_filesystem_paths=[Path(p).expanduser().__str__() for p in cfg.mcp_filesystem_paths],
         )
+        self.claude_model: str = ov.claude_model or cfg.claude_model
+        self.codex_model: str = ov.codex_model or cfg.codex_model
         self._transcript: TranscriptLog | None = None
         self._claude_turn_count: int = 0
         self._codex_turn_count: int = 0
@@ -120,10 +122,20 @@ class Session:
         self._transcript = TranscriptLog(self.id, sessions_dir)
         log.info("session_start id=%s number=%s goal=%r", self.id, self.session_number, goal[:80])
         self._log({"kind": "session_start", "actor": "system", "role": "system",
-                   "round": 0, "payload": {"goal": goal, "session_number": self.session_number}})
+                   "round": 0, "payload": {
+                       "goal": goal,
+                       "session_number": self.session_number,
+                       "claude_model": self.claude_model,
+                       "codex_model": self.codex_model,
+                       "round_limit": self._round_limit,
+                       "started_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                   }})
         self._broadcast({"type": "state", "state": "fanning_out", "round": 0,
                          "session_number": self.session_number,
-                         "session_id": self.id})
+                         "session_id": self.id,
+                         "claude_model": self.claude_model,
+                         "codex_model": self.codex_model,
+                         "round_limit": self._round_limit})
         self.state = "fanning_out"
         await asyncio.gather(
             self._claude.start(SYSTEM_PRODUCER, goal),
@@ -160,8 +172,10 @@ class Session:
         log.info("turn_start %s actor=%s round=%d", turn_id, actor, self.round)
         self._log({"kind": "turn_start", "turn_id": turn_id, "actor": actor,
                    "role": role, "round": self.round, "payload": {}})
+        model = self.claude_model if is_claude else self.codex_model
         self._broadcast({"type": "turn_start", "turn_id": turn_id,
-                         "actor": actor, "role": role, "round": self.round})
+                         "actor": actor, "role": role, "round": self.round,
+                         "model": model})
 
         # ------ build prompt ------
         # Consume all pending directives for this actor and concatenate them.
@@ -289,7 +303,7 @@ class Session:
                                 "thread_id": turn_thread_id}})
         self._broadcast({"type": "turn_end", "turn_id": turn_id,
                          "verdict": turn.verdict, "duration_ms": duration_ms,
-                         "thread_id": turn_thread_id})
+                         "session_id": self.id})
 
         if self.state == "halted":
             # Clean halt that arrived between chunks but after the stream
@@ -320,7 +334,8 @@ class Session:
             self._log({"kind": "session_end", "actor": "system", "role": "system",
                        "round": self.round, "payload": {"reason": self._done_reason}})
             self._broadcast({"type": "session_done", "reason": self._done_reason,
-                             "session_id": self.id, "session_number": self.session_number})
+                             "session_id": self.id, "session_number": self.session_number,
+                             "round_limit": self._round_limit})
 
         # Webhook emission — after all JSONL writes and WebSocket broadcasts.
         _turn_fields = {
@@ -386,7 +401,8 @@ class Session:
                    "payload": {"reason": "expired",
                                "detail": f"Session auto-expired after {seconds}s halt"}})
         self._broadcast({"type": "session_done", "reason": "expired",
-                         "session_id": self.id, "session_number": self.session_number})
+                         "session_id": self.id, "session_number": self.session_number,
+                         "round_limit": self._round_limit})
         await self.close()
 
     async def resume(self) -> None:
