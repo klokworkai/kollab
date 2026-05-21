@@ -239,7 +239,7 @@ coverage.xml
 *.swp
 *.swo
 *~
-.DS_Store
+**/.DS_Store
 
 # --- kollab runtime data ---
 # user config and session logs live in ~/.kollab/ but if anyone
