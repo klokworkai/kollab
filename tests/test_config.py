@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -43,5 +44,6 @@ def test_validate_bad_binary() -> None:
 
 def test_validate_good_binaries() -> None:
     cfg = Config(claude_binary="claude", codex_binary="codex")
-    errors = validate_config(cfg)
+    with patch("shutil.which", return_value="/usr/local/bin/claude"):
+        errors = validate_config(cfg)
     assert errors == []
