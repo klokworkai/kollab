@@ -56,7 +56,13 @@ uvicorn kollab.server:app --reload --port 8765
 
 ## Commit style
 
-Plain imperative present tense. `fix(ace): handle clean halt during fan-out`, `feat(app): add collapse-all to turn cards`. Scope is the module name when it fits.
+This project follows [Conventional Commits](https://www.conventionalcommits.org). Format: `type(scope): description` in plain imperative present tense. Scope is the module name when it fits.
+
+Common types: `feat`, `fix`, `chore`, `docs`, `test`, `refactor`. Examples:
+- `fix(ace): handle clean halt during fan-out`
+- `feat(app): add collapse-all to turn cards`
+- `docs(examples): add directive injection screenshot`
+- `chore: update .gitignore glob for .DS_Store`
 
 ## License
 
