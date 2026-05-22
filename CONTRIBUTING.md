@@ -6,7 +6,7 @@ koll♠b is a demo and observability project — the goal is legibility, simplic
 
 - Check open issues first — if there's an existing issue for what you're working on, comment there before starting.
 - For anything non-trivial, open an issue to discuss the approach before writing code. This saves both of us time.
-- The project has intentional scope limits — see "What koll♠b is not" in the README. Features outside that scope will be declined.
+- The project has intentional scope limits. kollab is a single-user local demo tool — not a production orchestration framework, not a multi-agent platform, not a CI/CD system. Features outside that scope will be declined.
 
 ## What's in scope
 
@@ -32,6 +32,8 @@ git clone https://github.com/klokworkai/kollab
 cd kollab
 pip install -e ".[dev]"
 ```
+
+Note: `pip install -e .` generates a `kollab.egg-info/` directory and `pytest` generates `.pytest_cache/` — both are in `.gitignore` and should not be committed.
 
 Run tests:
 

@@ -1,10 +1,31 @@
-# koll♠b
+# kollab
 
-koll♠b is a transparent multi-agent orchestration system that runs two AI coding agents — **Claude** (Anthropic) and **Codex** (OpenAI) — through an adversarial-collaborative reasoning workflow on a shared engineering objective.
+**koll♠b** — adversarial-collaborative AI orchestration with full reasoning visibility.
 
-Every turn, every critique, every revision, and every disagreement is rendered live in a browser UI as it happens. The product is **visibility into the inter-model dynamic** — not the orchestration itself.
+kollab runs two AI coding agents — **Claude** (Anthropic) and **Codex** (OpenAI) — through a structured proposal, critique, revision, and convergence workflow on a shared engineering objective. Every turn, every critique, every revision, and every disagreement is rendered live in a browser UI as it happens.
 
 > Early-stage demo. Not for production use.
+
+---
+
+## What kollab does
+
+Two agents, fixed roles, one shared goal. The full reasoning trace is visible in real time.
+
+1. User submits an engineering objective
+2. Claude (producer) generates an initial proposal
+3. Codex (critic) adversarially reviews and issues a verdict — `AGREE`, `DISAGREE`, or `REVISED`
+4. ACE orchestrates the revision loop — turn by turn, verdict by verdict
+5. User can halt at any point, inject a directive into one or both agents, and resume
+6. Session ends on Codex `AGREE`, round limit, or user halt — full transcript exported
+
+The product is **visibility into the inter-model dynamic** — not the orchestration itself.
+
+---
+
+## Architecture
+
+![kollab system architecture](docs/kollab_architecture_v5.svg)
 
 ---
 
@@ -67,9 +88,7 @@ Full orchestration spec: [`specs/ace-orchestration.md`](specs/ace-orchestration.
 
 ---
 
-## Architecture
-
-![kollab system architecture](docs/kollab_architecture_v5.svg)
+## koll♠b Architecture
 
 **Five layers:**
 

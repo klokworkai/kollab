@@ -2,9 +2,11 @@
 
 All notable changes to koll♠b are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [Unreleased] — In Progress
 
-### Added
+The following are implemented but not yet field-validated. Treat as in-progress until a release is cut.
+
+### In Progress
 - REST API for headless session control (`GET /api/session`, `POST /api/session/start`, `POST /api/session/stop`, `POST /api/session/resume`, `POST /api/session/directive`)
 - `api_key` bearer token auth for API endpoints (empty = no auth, backward compatible)
 - Webhook emission layer (`webhooks.py`) — fire-and-forget, never blocks session

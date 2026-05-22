@@ -199,7 +199,7 @@ A session ends when one of these conditions is met:
 
 | Condition | What you see |
 |-----------|-------------|
-| Both agents emit `AGREE` on two consecutive turns | "✓ Both agents reached agreement." |
+| Codex issues `AGREE` verdict | "✓ Converged." |
 | Round limit is reached | "⚠ Round limit reached." |
 | You clicked Stop and didn't Resume | "⏹ Session halted." |
 
