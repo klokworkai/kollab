@@ -6,7 +6,27 @@ build-backend = "setuptools.build_meta"
 name = "kollab"
 version = "0.1.0"
 description = "Adversarial-collaborative dialogue between Claude Code and OpenAI Codex"
+readme = "README.md"
+license = { text = "Apache-2.0" }
 requires-python = ">=3.11"
+authors = [
+    { name = "Klokwork AI Inc.", email = "kollab@klokwork.ai" }
+]
+keywords = ["ai", "agents", "llm", "orchestration", "observability", "claude", "codex"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
+
+[project.urls]
+Homepage = "https://github.com/klokworkai/kollab"
+Repository = "https://github.com/klokworkai/kollab"
+Issues = "https://github.com/klokworkai/kollab/issues"
 dependencies = [
     "fastapi",
     "uvicorn[standard]",
