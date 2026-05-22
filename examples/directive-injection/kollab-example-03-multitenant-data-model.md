@@ -36,11 +36,21 @@ The directive card appears inline between X-1 (interrupted, no output) and X-2 (
 
 ---
 
+## The directive card in context
+
+The directive renders as its own `DIRECTIVE → CLAUDE` card inline between X-1 (interrupted) and X-2. It is visible to the user but not to Codex — Codex never sees the new requirement, only Claude's revised proposal that incorporates it.
+
+![Directive card inline between X-1 interrupted and X-2](artifacts/kollab-ex3-directive-injection.png)
+
+---
+
 ## How C-4 absorbed the directive
 
 C-4 opened by conceding all seven of Codex's X-2 points, then added a new section — "## Cross-Tenant Sharing Design" — directly addressing the directive. Claude introduced a `project_sharing` table with composite foreign keys, RLS policies covering shared project visibility, and a design note on audit scope for cross-tenant access.
 
 The directive was not acknowledged as a separate turn — it was woven into the revision. The dialogue shows exactly where user intent entered the agent's reasoning and how it shaped the output.
+
+![C-4 reasoning block showing directive absorbed alongside Codex's seven-point critique](artifacts/kollab-ex3-directive-acknowledge.png)
 
 ---
 
@@ -48,7 +58,7 @@ The directive was not acknowledged as a separate turn — it was woven into the 
 
 | File | Description |
 |------|-------------|
-| [`kollab-020-2026-05-20.md`](artifacts/kollab-020-2026-05-20.md) | Full exported transcript — all turns, directive, reasoning blocks, verdicts |
+| [`kollab-ex3-directive-injection-transcript.md`](artifacts/kollab-ex3-directive-injection-transcript.md) | Full exported transcript — all turns, directive, reasoning blocks, verdicts |
 | [`sess_6eb85a70.jsonl`](artifacts/sess_6eb85a70.jsonl) | Raw JSONL session log |
 
 ---

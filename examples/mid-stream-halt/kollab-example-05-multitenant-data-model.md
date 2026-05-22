@@ -46,7 +46,7 @@ The reasoning in C-1 and C-2 is the honest record of what the model was thinking
 
 | File | Description |
 |------|-------------|
-| [`kollab-020-2026-05-20.md`](artifacts/kollab-020-2026-05-20.md) | Full exported transcript — all turns, interrupted artifacts, reasoning blocks, verdicts |
+| [`kollab-ex5-mid-halt-session-transcript.md`](artifacts/kollab-ex5-mid-halt-session-transcript.md) | Full exported transcript — all turns, interrupted artifacts, reasoning blocks, verdicts |
 | [`sess_6eb85a70.jsonl`](artifacts/sess_6eb85a70.jsonl) | Raw JSONL session log |
 
 ---
