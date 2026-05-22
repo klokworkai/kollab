@@ -176,7 +176,7 @@ Click **Resume** to continue from where the session stopped.
 
 Type in the input box at the bottom and click **Send** (or press Enter).
 
-Your message is queued and delivered to the next agent's turn prompt, prefixed with `[user]: …`.
+Your message is queued and delivered to the next agent's turn prompt as a directive, prefixed with `[User directive — address this first]:`. The agent will acknowledge and address it before responding to its peer.
 
 ---
 
@@ -256,7 +256,7 @@ pip3 install -e ".[dev]"
 python3 -m pytest tests/ -v
 ```
 
-All 17 tests should pass. These cover config round-trip, verdict parsing, turn ID generation, and response reference parsing.
+All 35 tests should pass. These cover config round-trip, verdict parsing, turn ID generation, response reference parsing, prompt building, API auth, and webhook delivery.
 
 ---
 

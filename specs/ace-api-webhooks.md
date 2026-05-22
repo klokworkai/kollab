@@ -1,8 +1,28 @@
 # ACE API + Webhook Spec
 
-**Status:** Ready for implementation  
+**Status:** In progress / partially implemented  
 **Scope:** Headless API access to kollab sessions + structured webhook event emission  
 **Target modules:** `server.py`, `config.py`, `ace.py` (minimal touch), new `webhooks.py`
+
+---
+
+## Implementation Status
+
+| Component | Status | Notes |
+|---|---|---|
+| `api_key` bearer auth | ✅ Implemented | `api_key` config field wired; `require_api_key` dependency on all `/api/*` routes |
+| `GET /api/session` | ✅ Implemented | Returns current session state for polling |
+| `POST /api/session` explicit response shape | ✅ Implemented | Returns `session_id`, `session_number`, `state` |
+| `MODEL_ALIASES` server-side resolution | ✅ Implemented | Short labels resolved in `config.py` |
+| `WebhookConfig` nested model | ✅ Implemented | `[webhooks]` TOML section, all fields |
+| `webhooks.py` emit function | ✅ Implemented | Fire-and-forget, async, never raises |
+| Slack URL auto-detection | ✅ Implemented | Slack URLs moved from `targets` to `slack_targets` at config load |
+| Slack Block Kit payload shaping | ✅ Implemented | All 8 event types shaped |
+| ACE emit call sites | ✅ Implemented | All 9 emit points wired in `ace.py` |
+| Configure modal — Webhooks section | ⏳ Planned | Parked pending field validation; not yet in `app.js` |
+| `httpx` dependency | ✅ Implemented | Added to `pyproject.toml` |
+| Test coverage — `test_webhooks.py` | ⏳ In progress | Core cases written; coverage not yet complete |
+| Test coverage — `test_api_auth.py` | ⏳ In progress | Auth cases written; edge cases pending |
 
 ---
 

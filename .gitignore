@@ -246,7 +246,8 @@ coverage.xml
 # accidentally creates a local one or mounts it in, ignore it
 .kollab/
 workspace/
-*.jsonl
+sessions/*.jsonl
+!examples/**/*.jsonl
 
 # --- Docker ---
 .dockerignore.local

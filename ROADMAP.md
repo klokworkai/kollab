@@ -30,9 +30,13 @@ A GitHub App that triggers koll♠b sessions automatically on PR open or label e
 
 ---
 
-## Parked (not scheduled)
+## Possible / planned
 
 - **GitHub MCP for Claude** — config fields exist, agent code does not read them. Requires a dedicated design session before implementation.
-- **Session rehydration across process restarts** — rekindling both agent sessions days later with full model memory. Requires solving Codex thread ID persistence and Claude SDK session continuity across binary restarts. Not attempted without a prior design session.
-- **Continue-session via MD artifact** — export a completed session as markdown, start a new session with `(prior MD) + (add-on goal)`. Cheap to build but not yet on the roadmap.
-- **Role swap** — rejected. New session if roles need to change.
+- **Session rehydration across process restarts** — rekindling both agent sessions days later with full model memory. Requires solving Codex thread ID persistence and Claude SDK session continuity across binary restarts.
+- **Continue-session via MD artifact** — export a completed session as markdown, start a new session with `(prior MD) + (add-on goal)`. Content-fork workflow, not session rehydration.
+- **Role swap** — swap producer and critic roles between sessions without full reconfiguration.
+- **Model swap** — replace Claude or Codex with a different model mid-session or at session start without reconfiguring globally.
+- **New model support** — add support for additional models beyond Claude and Codex as producers or critics.
+- **Custom roles** — define roles beyond producer/critic; assign specific personas, constraints, or review lenses to each agent.
+- **Workflow templates** — define a named workflow (e.g. PR review, architecture decision, incident postmortem) and assign models and roles to it; launch a session from the template in one step.
