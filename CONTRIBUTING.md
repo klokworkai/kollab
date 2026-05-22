@@ -66,6 +66,10 @@ Common types: `feat`, `fix`, `chore`, `docs`, `test`, `refactor`. Examples:
 - `docs(examples): add directive injection screenshot`
 - `chore: update .gitignore glob for .DS_Store`
 
+## Project context
+
+koll♠b is developed with Claude Code as a hands-on collaborator. The standing design context — architecture decisions, locked patterns, conventions — lives in the Klokwork AI design repository rather than this repo. It's internal working material, not part of the OSS distribution. Commit messages in early history reference `CLAUDE.md`; that file was the in-repo version of that context before it was moved to the design repo.
+
 ## License
 
 By contributing, you agree your contributions are licensed under the Apache 2.0 license that covers this project.
