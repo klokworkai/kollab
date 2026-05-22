@@ -13,8 +13,6 @@ koll♠b is a local single-user demo tool. It is not designed for multi-user dep
 
 If you set `api_key` in `~/.kollab/config.toml` and expose the koll♠b server over a network, treat that key as a bearer token secret. Do not commit `config.toml` to version control. The default is an empty string (no auth), which is safe for local use only.
 
-For headless or CI use, inject the key via the `KOLLAB_API_KEY` environment variable rather than writing it to disk.
-
 ## Reporting a vulnerability
 
 If you find a security issue, please do not open a public GitHub issue.
