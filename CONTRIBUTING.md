@@ -56,6 +56,29 @@ uvicorn kollab.server:app --reload --port 8765
 - If a value can be configured, it belongs in `Config`. If it's a constant, it goes at the top of its module.
 - Keep components small. Each module does one thing.
 
+## Branch naming
+
+Use the same type prefixes as commit messages:
+
+| Prefix | Use for |
+|---|---|
+| `feat/` | New features or behaviour |
+| `fix/` | Bug fixes |
+| `docs/` | Documentation only |
+| `test/` | Test additions or fixes |
+| `chore/` | Tooling, config, dependencies, repo maintenance |
+| `refactor/` | Code restructuring with no behaviour change |
+
+Format: `type/short-description` — lowercase, hyphens, no spaces.
+
+Examples:
+- `feat/webhook-configure-modal`
+- `fix/mid-stream-halt-codex`
+- `docs/update-runbook-auth-steps`
+- `chore/coderabbit-config`
+
+One branch per logical change. Keep branches short-lived — open a PR, merge, delete.
+
 ## Commit style
 
 This project follows [Conventional Commits](https://www.conventionalcommits.org). Format: `type(scope): description` in plain imperative present tense. Scope is the module name when it fits.
