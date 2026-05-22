@@ -23,10 +23,6 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Application Frameworks",
 ]
 
-[project.urls]
-Homepage = "https://github.com/klokworkai/kollab"
-Repository = "https://github.com/klokworkai/kollab"
-Issues = "https://github.com/klokworkai/kollab/issues"
 dependencies = [
     "fastapi",
     "uvicorn[standard]",
@@ -37,6 +33,11 @@ dependencies = [
     "pydantic",
     "httpx>=0.27",
 ]
+
+[project.urls]
+Homepage = "https://github.com/klokworkai/kollab"
+Repository = "https://github.com/klokworkai/kollab"
+Issues = "https://github.com/klokworkai/kollab/issues"
 
 [project.scripts]
 kollab = "kollab.__main__:main"

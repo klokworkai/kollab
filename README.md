@@ -106,13 +106,13 @@ koll♠b is built around the premise that AI-assisted engineering workflows shou
 
 ---
 
-## API and webhooks
+## API and webhooks *(in progress)*
 
-koll♠b exposes a REST API for headless use — trigger sessions programmatically, poll state, and retrieve transcripts. A webhook layer emits structured events (`disagreement`, `convergence`, `halt`, `directive`, and others) to any HTTP endpoint. Slack incoming webhooks are a first-class target with automatic Block Kit formatting.
+A REST API and webhook layer is under active development. When complete, koll♠b will support headless session control — trigger sessions programmatically, poll state, and retrieve transcripts. A webhook layer will emit structured events (`disagreement`, `convergence`, `halt`, `directive`, and others) to any HTTP endpoint, with Slack incoming webhooks as a first-class target.
 
-This enables integration patterns like Slack channel notifications with stop/resume buttons, GitHub Actions that run adversarial review on PRs, and CI pipelines that receive convergence signals as workflow gates.
+This will enable integration patterns like Slack channel notifications, GitHub Actions adversarial PR review, and CI pipeline convergence gates.
 
-Full API and webhook spec, including Slack and GitHub integration examples: [`specs/ace-api-webhooks.md`](specs/ace-api-webhooks.md)
+Full design spec: [`specs/ace-api-webhooks.md`](specs/ace-api-webhooks.md)
 
 ---
 
@@ -172,9 +172,9 @@ uvicorn kollab.server:app --reload --port 8765
 
 ## Status
 
-v2 — active development. Core dialogue loop, halt/resume, directive injection, history, streaming, export, and readonly replay complete.
+v2 — active development. Core dialogue loop, halt/resume, directive injection, history, streaming, export, and readonly replay are complete.
 
-Roadmap: API + webhook layer, GitHub MCP integration, Slack and GitHub integration adapters.
+**In progress:** REST API, webhook emission, and all programmatic/headless integration patterns. GitHub MCP integration and Slack/GitHub adapters are planned.
 
 ---
 

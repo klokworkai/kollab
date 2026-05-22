@@ -6,7 +6,7 @@
 
 ---
 
-> **Note:** This is the same session as [Example 05](../example-05-multitenant-data-model/kollab-example-05-multitenant-data-model.md), which focuses on halt and resume. This page focuses on directive injection.
+> **Session lineage:** This example shares the same orchestration session (`sess_6eb85a70`) as [Example 05 — Halt and Resume](../mid-stream-halt/kollab-example-05-multitenant-data-model.md). Both pages are lenses on the same live run — same agents, same goal, same JSONL log. This page focuses on directive injection; Example 05 focuses on the mid-stream halt that preceded it. The shared session is intentional: it demonstrates how koll♠b preserves reasoning continuity and orchestration state across intervention boundaries.
 
 ---
 
