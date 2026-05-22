@@ -27,29 +27,7 @@ cd kollab
 
 ---
 
-## 3. Install kollab
-
-```bash
-pip3 install -e .
-```
-
-This installs all Python dependencies (`fastapi`, `uvicorn`, `claude-agent-sdk`, etc.) and registers the `kollab` command.
-
-Verify:
-
-```bash
-python3 -m kollab --help
-# or if your Python bin dir is on PATH:
-kollab --help
-```
-
-You should see uvicorn start and immediately stop (no `--help` flag — that's expected; it just means the entry point is wired up).
-
-> **Note:** If `kollab` isn't on your PATH, use `python3 -m kollab` everywhere in this runbook.
-
----
-
-## 4. Authenticate Claude Code
+## 3. Authenticate Claude Code
 
 Claude Code requires an Anthropic account with an active API key or a Pro/Max subscription.
 
@@ -74,7 +52,7 @@ You should get a short text response back.
 
 ---
 
-## 5. Authenticate Codex
+## 4. Authenticate Codex
 
 Codex requires an OpenAI account with API access.
 
@@ -96,6 +74,28 @@ echo "say: hello" | codex exec --skip-git-repo-check -
 ```
 
 You should get a short response. Press Ctrl+C if it waits for input.
+
+---
+
+## 5. Install kollab
+
+```bash
+pip3 install -e .
+```
+
+This installs all Python dependencies (`fastapi`, `uvicorn`, `claude-agent-sdk`, etc.) and registers the `kollab` command.
+
+Verify:
+
+```bash
+python3 -m kollab --help
+# or if your Python bin dir is on PATH:
+kollab --help
+```
+
+You should see uvicorn start and immediately stop (no `--help` flag — that's expected; it just means the entry point is wired up).
+
+> **Note:** If `kollab` isn't on your PATH, use `python3 -m kollab` everywhere in this runbook.
 
 ---
 
