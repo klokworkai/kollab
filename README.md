@@ -138,9 +138,9 @@ Config lives at `~/.kollab/config.toml`. The **⚙ Configure** modal is the reco
 | Field | Default | Description |
 |---|---|---|
 | `claude_binary` | `claude` | Path to Claude Code CLI |
-| `claude_model` | `claude-sonnet-4-6` | Default Claude model |
+| `claude_model` | `claude-sonnet-4-6` | Default Claude model. Short aliases (`haiku`, `sonnet`, `opus`) are also accepted and resolved to full model strings at runtime. |
 | `codex_binary` | `codex` | Path to Codex CLI |
-| `codex_model` | `gpt-5.4` | Default Codex model |
+| `codex_model` | `gpt-5.4` | Default Codex model. Short alias `mini` resolves to `gpt-5.4-mini`. |
 | `round_limit` | `8` | Max rounds per session |
 | `halt_timeout_secs` | `1800` | Auto-expire halted sessions (0 = never) |
 | `port` | `8765` | Server port |

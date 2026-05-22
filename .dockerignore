@@ -1,0 +1,23 @@
+.git
+.gitignore
+.github
+.DS_Store
+**/.DS_Store
+__pycache__
+**/__pycache__
+*.pyc
+*.egg-info
+.pytest_cache
+.venv
+venv
+
+# dev and docs — not needed in the image
+examples/
+docs/
+specs/
+tests/
+*.md
+!README.md
+
+# local config and session data — always mounted as a volume
+~/.kollab

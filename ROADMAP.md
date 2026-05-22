@@ -6,32 +6,24 @@ Items are listed in rough priority order. Nothing here is a commitment or a time
 
 ---
 
-## Near-term
+## In progress
 
-### Environment variable auth (`KOLLAB_API_KEY`)
-The `api_key` bearer token currently lives only in `config.toml`. Add support for reading it from the `KOLLAB_API_KEY` environment variable at startup, with the env var taking precedence. Needed for headless and CI use cases without writing secrets to disk.
+### REST API and webhook layer
+Headless session control via REST API. Webhook emission of structured session events (`turn_start`, `turn_end`, `verdict`, `convergence`, `halt`, `directive`, and others) to arbitrary HTTP endpoints. Slack incoming webhooks are a first-class target. The API and emission layer are implemented; field validation and integration testing are ongoing.
 
-### Fix pre-existing test failures
-Two tests in `test_prompts.py` assert an old prompt prefix format. Update them to match the current `prompts.py` output.
-
-### Example session transcripts
-Populate `examples/` with real session exports covering the five documented patterns: sustained critique loop, clean convergence, directive injection, round limit, and mid-stream halt. Each example includes a `transcript.md`, `session.jsonl`, and `notes.md`.
+Full design spec: [`specs/ace-api-webhooks.md`](specs/ace-api-webhooks.md)
 
 ---
 
 ## Integration layer
 
-These live **outside** kollab core as separate adapter projects that consume koll♠b's webhook events. koll♠b ships the webhook emission layer; the adapters are built on top of it.
+These live **outside** kollab core as separate adapter projects that consume koll♠b's webhook events. They depend on the REST API and webhook layer being fully validated first.
 
 ### Slack adapter
-A lightweight Slack app that receives koll♠b webhook events and posts them to a channel. koll♠b already emits Slack-formatted Block Kit payloads natively to any Slack incoming webhook URL — this adapter adds interactive buttons (Stop, Resume, Send directive) that call back to the koll♠b API.
-
-Depends on: `api_key` / `KOLLAB_API_KEY` env var support being in place first.
+A lightweight Slack app that receives koll♠b webhook events and posts them to a channel, with interactive buttons (Stop, Resume, Send directive) that call back to the koll♠b API.
 
 ### GitHub Actions integration
 A reusable GitHub Action that starts a koll♠b session against a PR diff, waits for convergence or round limit, and posts the transcript as a PR comment. Useful for adversarial review of architecture decisions, API design, or significant code changes before merge.
-
-Depends on: koll♠b REST API (already built), `api_key` auth, and a koll♠b instance reachable from the Actions runner (local runner or a deployed instance).
 
 ### GitHub App
 A GitHub App that triggers koll♠b sessions automatically on PR open or label events, without requiring a manually configured Actions workflow. Posts results back to the PR as a check or comment.
