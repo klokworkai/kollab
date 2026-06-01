@@ -40,7 +40,7 @@ A GitHub App that triggers koll♠b sessions automatically on PR open or label e
 - **New model support** — add support for additional models beyond Claude and Codex as producers or critics.
 - **Custom roles** — define roles beyond producer/critic; assign specific personas, constraints, or review lenses to each agent.
 - **Workflow templates** — define a named workflow (e.g. PR review, architecture decision, incident postmortem) and assign models and roles to it; launch a session from the template in one step.
-- **Filesystem MCP for all providers** — Auto configured per provider on add, with validaton.
-- **File Attachments** — Attach file(s) to agents regardless/independent of MCP.
-- **Sesson ARC Summary** — Post session synthesis from turn TL;DRs and Verdicts.
-- **API call recording + browser replay** — Re-construct API sessions in kollab browser as a session to observe interations/dialogs.
+- **Filesystem MCP for all providers** — Auto configured per provider on add, with validation.
+- **File Attachments** — Attach file(s) to agents regardless or independent of MCP.
+- **Session ARC Summary** — Post session synthesis from turn TL;DRs and Verdicts.
+- **API call recording + browser replay** — Re-construct API sessions in kollab browser as a session to observe interactions/dialogs.
