@@ -7,10 +7,9 @@ import subprocess
 import sys
 import tomllib
 from pathlib import Path
-from typing import Literal
 
 import tomli_w
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel
 
 CONFIG_PATH = Path("~/.kollab/config.toml").expanduser()
 
@@ -18,89 +17,21 @@ log = logging.getLogger("kollab.config")
 
 _SLACK_PREFIX = "https://hooks.slack.com/"
 
+MODEL_ALIASES: dict[str, str] = {
+    "haiku":  "claude-haiku-4-5-20251001",
+    "sonnet": "claude-sonnet-4-6",
+    "opus":   "claude-opus-4-7",
+    "mini":   "gpt-5.4-mini",
+}
+
 MCP_PACKAGES = {
     "mcp_filesystem": "@modelcontextprotocol/server-filesystem",
     "mcp_github":     "@modelcontextprotocol/server-github",
 }
 
+# Resolved install dir — all MCP packages go here
 _MCP_DIR = Path("~/.kollab/mcp").expanduser()
 
-
-# ------------------------------------------------------------------ provider models
-
-class ProviderModel(BaseModel):
-    alias: str     # short name shown in UI: "sonnet", "flash"
-    model_id: str  # full model string sent to the API
-
-
-class ProviderConfig(BaseModel):
-    id: str
-    name: str
-    type: Literal["claude_sdk", "codex_cli", "openai_api", "google_api"]
-    models: list[ProviderModel] = []
-    binary: str = ""           # CLI providers: path to executable
-    auth_method: Literal["cli_oauth", "env_var"] = "env_var"
-    api_key_env: str = ""      # env var that holds the API key
-    api_base_url: str = ""     # OpenAI-compatible providers
-    mcp_enabled: bool = False
-    workdir: str = ""
-    enabled: bool = True
-
-
-def _default_providers() -> list[ProviderConfig]:
-    return [
-        ProviderConfig(
-            id="anthropic", name="Anthropic (Claude)", type="claude_sdk",
-            binary="claude", auth_method="cli_oauth", mcp_enabled=True,
-            workdir="~/.kollab/workspace/claude", enabled=True,
-            models=[
-                ProviderModel(alias="haiku",  model_id="claude-haiku-4-5-20251001"),
-                ProviderModel(alias="sonnet", model_id="claude-sonnet-4-6"),
-                ProviderModel(alias="opus",   model_id="claude-opus-4-7"),
-            ],
-        ),
-        ProviderConfig(
-            id="openai", name="OpenAI (Codex)", type="codex_cli",
-            binary="codex", auth_method="cli_oauth", mcp_enabled=False,
-            workdir="~/.kollab/workspace/codex", enabled=True,
-            models=[
-                ProviderModel(alias="mini",    model_id="gpt-5.4-mini"),
-                ProviderModel(alias="gpt-5.4", model_id="gpt-5.4"),
-                ProviderModel(alias="gpt-5.5", model_id="gpt-5.5"),
-            ],
-        ),
-        ProviderConfig(
-            id="deepseek", name="DeepSeek", type="openai_api",
-            auth_method="env_var", api_key_env="DEEPSEEK_API_KEY",
-            api_base_url="https://api.deepseek.com/v1",
-            mcp_enabled=False, workdir="", enabled=False,
-            models=[
-                ProviderModel(alias="flash", model_id="deepseek-v4-flash"),
-                ProviderModel(alias="pro",   model_id="deepseek-v4-pro"),
-            ],
-        ),
-        ProviderConfig(
-            id="groq", name="Groq", type="openai_api",
-            auth_method="env_var", api_key_env="GROQ_API_KEY",
-            api_base_url="https://api.groq.com/openai/v1",
-            mcp_enabled=False, workdir="", enabled=False,
-            models=[
-                ProviderModel(alias="llama4", model_id="llama-4-70b"),
-            ],
-        ),
-        ProviderConfig(
-            id="gemini", name="Google (Gemini)", type="google_api",
-            auth_method="env_var", api_key_env="GOOGLE_API_KEY",
-            mcp_enabled=False, workdir="", enabled=False,
-            models=[
-                ProviderModel(alias="pro",   model_id="gemini-3.1-pro"),
-                ProviderModel(alias="flash", model_id="gemini-3.1-flash"),
-            ],
-        ),
-    ]
-
-
-# ------------------------------------------------------------------ webhook config
 
 class WebhookConfig(BaseModel):
     enabled: bool = False
@@ -114,12 +45,14 @@ class WebhookConfig(BaseModel):
     timeout_secs: int = 5
 
 
-# ------------------------------------------------------------------ main config
-
 class Config(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    claude_binary: str = "claude"
+    claude_model: str = "claude-sonnet-4-6"
+    claude_workdir: str = "~/.kollab/workspace/claude"
 
-    providers: list[ProviderConfig] = Field(default_factory=_default_providers)
+    codex_binary: str = "codex"
+    codex_model: str = "gpt-5.4"
+    codex_workdir: str = "~/.kollab/workspace/codex"
 
     round_limit: int = 8
     max_tokens_per_turn: int | None = None
@@ -128,27 +61,35 @@ class Config(BaseModel):
     sessions_dir: str = "~/.kollab/sessions"
     session_counter: int = 0
 
+    # MCP tool toggles
     mcp_filesystem_enabled: bool = True
     mcp_filesystem_paths: list[str] = []
     mcp_github_enabled: bool = False
     mcp_github_token: str = ""
 
-    theme: str = "dark"
+    # UI theme
+    theme: str = "dark"  # 'dark' | 'light'
+
+    # Logging
     logging_enabled: bool = False
-    logging_level: str = "info"
+    logging_level: str = "info"  # 'info' | 'debug'
+
+    # Halt timeout: auto-expire halted sessions after this many seconds (0 = never)
     halt_timeout_secs: int = 1800
+
+    # API auth — empty string means no auth required (local browser use unaffected)
     api_key: str = ""
 
-    webhooks: WebhookConfig = Field(default_factory=WebhookConfig)
+    # Webhook emission
+    webhooks: WebhookConfig = WebhookConfig()
 
-
-# ------------------------------------------------------------------ helpers
 
 def _expand(value: str) -> str:
     return os.path.expanduser(value)
 
 
 def _normalise_webhook_targets(cfg: Config) -> None:
+    """Move any Slack URLs from targets to slack_targets and log a warning per URL moved."""
     moved = [u for u in cfg.webhooks.targets if u.startswith(_SLACK_PREFIX)]
     if not moved:
         return
@@ -161,12 +102,15 @@ def _normalise_webhook_targets(cfg: Config) -> None:
 
 
 def mcp_server_path(package_key: str) -> Path:
+    """Return the local node binary path for an MCP package key."""
+    # @modelcontextprotocol/server-filesystem -> mcp-server-filesystem
     pkg_name = MCP_PACKAGES[package_key]
-    bin_name = "mcp-" + pkg_name.split("/")[-1]
+    bin_name = "mcp-" + pkg_name.split("/")[-1]  # mcp-server-filesystem / mcp-server-github
     return _MCP_DIR / "node_modules" / ".bin" / bin_name
 
 
 def ensure_mcp_packages() -> None:
+    """Install missing MCP npm packages into ~/.kollab/mcp on first run."""
     npm = shutil.which("npm")
     if not npm:
         print("[kollab] WARNING: npm not found — MCP tools will not be available.",
@@ -199,66 +143,11 @@ def ensure_mcp_packages() -> None:
 
 
 def next_session_number(cfg: Config) -> int:
+    """Atomically increment and persist the session counter. Returns the new number."""
     cfg.session_counter += 1
     save_config(cfg)
     return cfg.session_counter
 
-
-def provider_is_ready(provider: ProviderConfig) -> tuple[bool, str]:
-    """Check if a provider can be used. Returns (is_ready, message)."""
-    if provider.type in ("claude_sdk", "codex_cli"):
-        binary = _expand(provider.binary) if provider.binary else ""
-        if binary and (shutil.which(binary) or
-                       (Path(binary).is_file() and os.access(binary, os.X_OK))):
-            return True, "binary found"
-        return False, f"binary '{provider.binary}' not found"
-    if provider.type in ("openai_api", "google_api"):
-        if not provider.api_key_env:
-            return False, "no api_key_env configured"
-        if os.environ.get(provider.api_key_env, ""):
-            return True, f"{provider.api_key_env} is set"
-        return False, f"{provider.api_key_env} not set in environment"
-    return False, "unknown provider type"
-
-
-# ------------------------------------------------------------------ migration
-
-def _migrate_if_needed(data: dict) -> tuple[dict, bool]:
-    """Detect old flat config shape and convert to provider registry. Returns (data, migrated)."""
-    if "providers" in data:
-        return data, False
-
-    log.info("Migrating config from old flat format to provider registry")
-    defaults = _default_providers()
-
-    claude_binary = data.pop("claude_binary", "claude")
-    claude_workdir = data.pop("claude_workdir", "~/.kollab/workspace/claude")
-    claude_model = data.pop("claude_model", None)
-    if claude_model:
-        log.warning("Migrating config: claude_model=%r discarded — set the default model via the Providers UI", claude_model)
-
-    codex_binary = data.pop("codex_binary", "codex")
-    codex_workdir = data.pop("codex_workdir", "~/.kollab/workspace/codex")
-    codex_model = data.pop("codex_model", None)
-    if codex_model:
-        log.warning("Migrating config: codex_model=%r discarded — set the default model via the Providers UI", codex_model)
-
-    provider_dicts: list[dict] = []
-    for p in defaults:
-        pd = p.model_dump()
-        if p.id == "anthropic":
-            pd["binary"] = claude_binary
-            pd["workdir"] = claude_workdir
-        elif p.id == "openai":
-            pd["binary"] = codex_binary
-            pd["workdir"] = codex_workdir
-        provider_dicts.append(pd)
-
-    data["providers"] = provider_dicts
-    return data, True
-
-
-# ------------------------------------------------------------------ load / save
 
 def load_config() -> Config:
     if not CONFIG_PATH.exists():
@@ -267,44 +156,35 @@ def load_config() -> Config:
     else:
         with CONFIG_PATH.open("rb") as f:
             data = tomllib.load(f)
-        data, was_migrated = _migrate_if_needed(data)
         cfg = Config(**data)
-        if was_migrated:
-            save_config(cfg)
-
+    
+    # expand tildes on all path fields
+    cfg.claude_workdir = _expand(cfg.claude_workdir)
+    cfg.codex_workdir = _expand(cfg.codex_workdir)
     cfg.sessions_dir = _expand(cfg.sessions_dir)
-    for p in cfg.providers:
-        if p.workdir:
-            p.workdir = _expand(p.workdir)
 
+    # move any Slack URLs from targets to slack_targets
     _normalise_webhook_targets(cfg)
 
+    # auto-create working dirs
+    Path(cfg.claude_workdir).mkdir(parents=True, exist_ok=True)
+    Path(cfg.codex_workdir).mkdir(parents=True, exist_ok=True)
     Path(cfg.sessions_dir).mkdir(parents=True, exist_ok=True)
-    for p in cfg.providers:
-        if p.workdir and p.enabled:
-            Path(p.workdir).mkdir(parents=True, exist_ok=True)
 
     return cfg
 
 
 def save_config(cfg: Config) -> None:
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    data = cfg.model_dump(exclude_none=True)
+    data = {k: v for k, v in cfg.model_dump().items() if v is not None}
     with CONFIG_PATH.open("wb") as f:
         tomli_w.dump(data, f)
 
 
 def validate_config(cfg: Config) -> list[str]:
     errors: list[str] = []
-    for p in cfg.providers:
-        if not p.enabled:
-            continue
-        if p.type in ("claude_sdk", "codex_cli"):
-            if not p.binary:
-                errors.append(f"Provider '{p.id}': no binary configured")
-            else:
-                binary = _expand(p.binary)
-                if not (shutil.which(binary) or
-                        (Path(binary).is_file() and os.access(binary, os.X_OK))):
-                    errors.append(f"Provider '{p.id}': binary '{p.binary}' not found in PATH")
+    for field, value in (("claude_binary", cfg.claude_binary), ("codex_binary", cfg.codex_binary)):
+        resolved = _expand(value)
+        if not (shutil.which(resolved) or (Path(resolved).is_file() and os.access(resolved, os.X_OK))):
+            errors.append(f"{field}: '{value}' not found or not executable")
     return errors

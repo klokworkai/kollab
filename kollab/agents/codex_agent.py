@@ -49,12 +49,14 @@ class CodexAgent(Agent):
         await self._kill_proc()
 
     async def interrupt(self) -> None:
-        """Cancel the in-flight turn by killing the subprocess."""
-        await self._kill_proc()
+        """Cancel the in-flight turn by killing the subprocess.
 
-    @property
-    def thread_id(self) -> str:
-        return self._session_id or ""
+        Codex's `exec` CLI has no in-band interrupt; SIGTERM the process and
+        let the stdout pipe close so the receive loop in ACE drains naturally.
+        Server-side thread state is preserved (we keep `_session_id`) so the
+        next `codex exec resume` continues the conversation.
+        """
+        await self._kill_proc()
 
     async def _kill_proc(self) -> None:
         proc = self._proc

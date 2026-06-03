@@ -31,10 +31,9 @@ class Agent(ABC):
         """Clean up the session."""
 
     async def interrupt(self) -> None:
-        """Cancel the in-flight turn cleanly without tearing down the session."""
-        return None
+        """Cancel the in-flight turn cleanly without tearing down the session.
 
-    @property
-    def thread_id(self) -> str:
-        """Provider-specific session/thread ID for resume continuity. Empty string if N/A."""
-        return ""
+        Default no-op so existing agents that don't override stay valid;
+        Claude and Codex override.
+        """
+        return None

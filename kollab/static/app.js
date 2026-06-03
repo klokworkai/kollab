@@ -781,19 +781,16 @@ function onState(msg) {
     if (msg.state === 'fanning_out' && msg.session_number) {
       tab.sessionNumber = msg.session_number;
       tab.sessionId = tab.sessionId || msg.session_id || null;
-      if (msg.producer_model)  tab.producerModel  = msg.producer_model;
-      if (msg.critic_model)    tab.criticModel    = msg.critic_model;
-      if (msg.producer_name)   tab.producerName   = msg.producer_name;
-      if (msg.critic_name)     tab.criticName     = msg.critic_name;
-      if (msg.round_limit)     tab.roundLimit     = msg.round_limit;
+      if (msg.claude_model) tab.claudeModel = msg.claude_model;
+      if (msg.codex_model)  tab.codexModel  = msg.codex_model;
+      if (msg.round_limit)  tab.roundLimit  = msg.round_limit;
       if (isActiveTab) {
+        // Update goal card number label now that we have it
         const goalNumEl = document.getElementById('goal-session-num');
         if (goalNumEl) goalNumEl.textContent = `Session #${msg.session_number}`;
         const goalMetaEl = document.getElementById('goal-meta-models');
-        if (goalMetaEl && msg.producer_model && msg.critic_model) {
-          const pLabel = msg.producer_name || 'Producer';
-          const cLabel = msg.critic_name   || 'Critic';
-          goalMetaEl.textContent = `${pLabel}: ${msg.producer_model} · ${cLabel}: ${msg.critic_model} · rounds: ${msg.round_limit ?? '?'}`;
+        if (goalMetaEl && msg.claude_model && msg.codex_model) {
+          goalMetaEl.textContent = `Claude: ${msg.claude_model} · Codex: ${msg.codex_model} · rounds: ${msg.round_limit ?? '?'}`;
         }
       }
       renderTabBar();
@@ -1038,47 +1035,30 @@ document.addEventListener('keydown', e => {
   }
 });
 
-// ------------------------------------------------------------------ provider registry
-
-let _providers = [];
-
-async function fetchProviders() {
-  try {
-    const res = await fetch('/api/providers');
-    if (res.ok) _providers = await res.json();
-  } catch (_) {}
-  return _providers;
-}
-
-function populateProviderSelect(sel, defaultIdx) {
-  const enabled = _providers.filter(p => p.enabled);
-  sel.innerHTML = '';
-  for (const p of enabled) {
-    const opt = document.createElement('option');
-    opt.value = p.id;
-    opt.textContent = p.name + (p.is_ready ? '' : ' [not ready]');
-    opt.disabled = !p.is_ready;
-    sel.appendChild(opt);
-  }
-  const readyEnabled = enabled.filter(p => p.is_ready);
-  if (readyEnabled.length > defaultIdx) sel.value = readyEnabled[defaultIdx].id;
-  else if (readyEnabled.length > 0) sel.value = readyEnabled[0].id;
-}
-
-function populateModelSelect(sel, providerId) {
-  const p = _providers.find(x => x.id === providerId);
-  sel.innerHTML = '';
-  if (!p) return;
-  for (const m of p.models) {
-    const opt = document.createElement('option');
-    opt.value = m.model_id;
-    opt.textContent = `${m.alias} (${m.model_id})`;
-    sel.appendChild(opt);
-  }
-  if (p.models.length > 1) sel.selectedIndex = 1;
-}
-
 // ------------------------------------------------------------------ new session modal
+
+const MODEL_MATRIX = {
+  claude: [
+    { label: 'haiku',  model: 'claude-haiku-4-5-20251001', tier: 'fast'     },
+    { label: 'sonnet', model: 'claude-sonnet-4-6',          tier: 'gp'       },
+    { label: 'opus',   model: 'claude-opus-4-7',            tier: 'high-end' },
+  ],
+  codex: [
+    { label: 'mini',    model: 'gpt-5.4-mini', tier: 'fast' },
+    { label: 'gpt-5.4', model: 'gpt-5.4',      tier: 'gp'   },
+  ],
+};
+
+function populateSelect(selectEl, agentKey, currentValue) {
+  selectEl.innerHTML = '';
+  for (const m of MODEL_MATRIX[agentKey]) {
+    const opt = document.createElement('option');
+    opt.value = m.model;
+    opt.textContent = `${m.label} (${m.model})`;
+    if (m.model === currentValue) opt.selected = true;
+    selectEl.appendChild(opt);
+  }
+}
 
 document.getElementById('btn-close-all-tabs').addEventListener('click', () => {
   const toClose = tabs.filter(t => t.state !== 'active').map(t => t.id);
@@ -1086,23 +1066,14 @@ document.getElementById('btn-close-all-tabs').addEventListener('click', () => {
 });
 
 btnNewSession.addEventListener('click', async () => {
-  await fetchProviders();
-
-  const prodProvSel = document.getElementById('override-producer-provider');
-  const criticProvSel = document.getElementById('override-critic-provider');
-  populateProviderSelect(prodProvSel, 0);
-  populateProviderSelect(criticProvSel, 1);
-  populateModelSelect(document.getElementById('override-producer-model'), prodProvSel.value);
-  populateModelSelect(document.getElementById('override-critic-model'), criticProvSel.value);
-
-  prodProvSel.onchange = () => populateModelSelect(document.getElementById('override-producer-model'), prodProvSel.value);
-  criticProvSel.onchange = () => populateModelSelect(document.getElementById('override-critic-model'), criticProvSel.value);
-
   let cfg = {};
   try {
     const res = await fetch('/api/config');
     if (res.ok) cfg = await res.json();
   } catch (_) {}
+
+  populateSelect(document.getElementById('override-claude-model'), 'claude', cfg.claude_model || MODEL_MATRIX.claude[1].model);
+  populateSelect(document.getElementById('override-codex-model'),  'codex',  cfg.codex_model  || MODEL_MATRIX.codex[1].model);
 
   const roundInput = document.getElementById('override-round-limit');
   roundInput.placeholder = `default (${cfg.round_limit ?? 8})`;
@@ -1128,14 +1099,11 @@ document.getElementById('btn-modal-start').addEventListener('click', async () =>
 
   const body = { goal };
 
-  const producerProviderId = document.getElementById('override-producer-provider').value;
-  if (producerProviderId) body.producer_provider_id = producerProviderId;
-  const producerModel = document.getElementById('override-producer-model').value;
-  if (producerModel) body.producer_model = producerModel;
-  const criticProviderId = document.getElementById('override-critic-provider').value;
-  if (criticProviderId) body.critic_provider_id = criticProviderId;
-  const criticModel = document.getElementById('override-critic-model').value;
-  if (criticModel) body.critic_model = criticModel;
+  const claudeModel = document.getElementById('override-claude-model').value;
+  if (claudeModel && claudeModel !== cfg.claude_model) body.claude_model = claudeModel;
+
+  const codexModel = document.getElementById('override-codex-model').value;
+  if (codexModel && codexModel !== cfg.codex_model) body.codex_model = codexModel;
 
   const roundVal = parseInt(document.getElementById('override-round-limit').value, 10);
   if (!isNaN(roundVal) && roundVal > 0 && roundVal !== cfg.round_limit) body.round_limit = roundVal;
@@ -1269,254 +1237,30 @@ document.getElementById('btn-shutdown-yes').addEventListener('click', async () =
 
 // ------------------------------------------------------------------ configure modal
 
-// helpers for provider cards
-function _cfgTextInput(labelText, nameAttr, value, placeholder) {
-  const lbl = document.createElement('label');
-  lbl.className = 'flex flex-col gap-1 text-xs text-muted';
-  lbl.textContent = labelText;
-  const inp = document.createElement('input');
-  inp.type = 'text'; inp.name = nameAttr; inp.value = value || '';
-  inp.placeholder = placeholder || '';
-  inp.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none font-mono text-xs';
-  lbl.appendChild(inp);
-  return lbl;
-}
-
-function _parseModelsText(raw) {
-  return raw.split('\n').map(l => {
-    const [alias, ...rest] = l.trim().split(/\s+/);
-    const model_id = rest.join(' ');
-    return alias && model_id ? { alias, model_id } : null;
-  }).filter(Boolean);
-}
-
-function _modelsToText(models) {
-  return (models || []).map(m => `${m.alias}  ${m.model_id}`).join('\n');
-}
-
-function _buildProviderCard(p, onSave, onDelete, onValidate) {
-  const card = document.createElement('div');
-  card.className = 'border border-white/10 rounded p-3 flex flex-col gap-2 bg-userPanel/40';
-
-  // header row
-  const hdr = document.createElement('div');
-  hdr.className = 'flex items-center gap-2';
-
-  const enabledCk = document.createElement('input');
-  enabledCk.type = 'checkbox'; enabledCk.checked = p.enabled;
-  enabledCk.className = 'w-3.5 h-3.5 accent-claude shrink-0';
-  enabledCk.title = 'Enable / disable provider';
-
-  const nameSpan = document.createElement('span');
-  nameSpan.className = 'text-xs font-bold text-user flex-1 truncate';
-  nameSpan.textContent = `${p.name}  `;
-  const typeTag = document.createElement('span');
-  typeTag.className = 'text-muted font-normal';
-  typeTag.textContent = `[${p.type}]`;
-  nameSpan.appendChild(typeTag);
-
-  const readyDot = document.createElement('span');
-  readyDot.className = 'w-2 h-2 rounded-full shrink-0 ' + (p.is_ready ? 'bg-verdictAgree' : 'bg-verdictDisagree/60');
-  readyDot.title = p.ready_message || '';
-
-  const toggleBtn = document.createElement('button');
-  toggleBtn.type = 'button';
-  toggleBtn.className = 'text-muted text-xs hover:text-user transition';
-  toggleBtn.textContent = '▾';
-
-  hdr.appendChild(enabledCk);
-  hdr.appendChild(nameSpan);
-  hdr.appendChild(readyDot);
-  hdr.appendChild(toggleBtn);
-  card.appendChild(hdr);
-
-  // collapsible body
-  const body = document.createElement('div');
-  body.className = 'flex flex-col gap-2';
-  body.style.display = 'none';
-
-  const grid = document.createElement('div');
-  grid.className = 'grid grid-cols-2 gap-x-3 gap-y-2';
-
-  // common fields
-  const nameInp = _cfgTextInput('Display name', `_p_${p.id}_name`, p.name, 'e.g. Anthropic');
-  grid.appendChild(nameInp);
-
-  const typeInp = document.createElement('label');
-  typeInp.className = 'flex flex-col gap-1 text-xs text-muted';
-  typeInp.textContent = 'Type';
-  const typeSel = document.createElement('select');
-  typeSel.name = `_p_${p.id}_type`;
-  typeSel.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none text-xs';
-  for (const t of ['claude_sdk', 'codex_cli', 'openai_api', 'google_api']) {
-    const o = document.createElement('option');
-    o.value = t; o.textContent = t; if (p.type === t) o.selected = true;
-    typeSel.appendChild(o);
-  }
-  typeInp.appendChild(typeSel);
-  grid.appendChild(typeInp);
-
-  // conditional fields
-  const isCli = p.type === 'claude_sdk' || p.type === 'codex_cli';
-  if (isCli) {
-    grid.appendChild(_cfgTextInput('Binary path', `_p_${p.id}_binary`, p.binary, 'e.g. claude'));
-    grid.appendChild(_cfgTextInput('Working dir', `_p_${p.id}_workdir`, p.workdir, ''));
-  } else {
-    grid.appendChild(_cfgTextInput('API key env var', `_p_${p.id}_api_key_env`, p.api_key_env, 'e.g. OPENAI_API_KEY'));
-    grid.appendChild(_cfgTextInput('Base URL (optional)', `_p_${p.id}_api_base_url`, p.api_base_url, 'leave blank for default'));
-  }
-
-  body.appendChild(grid);
-
-  // models textarea
-  const modLbl = document.createElement('label');
-  modLbl.className = 'flex flex-col gap-1 text-xs text-muted';
-  modLbl.textContent = 'Models (alias  model_id — one per line)';
-  const modTA = document.createElement('textarea');
-  modTA.rows = 3; modTA.name = `_p_${p.id}_models`;
-  modTA.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none font-mono text-xs resize-none';
-  modTA.value = _modelsToText(p.models);
-  modTA.placeholder = 'sonnet  claude-sonnet-4-6';
-  modLbl.appendChild(modTA);
-  body.appendChild(modLbl);
-
-  // action row
-  const actRow = document.createElement('div');
-  actRow.className = 'flex gap-2 justify-end';
-
-  const validateBtn = document.createElement('button');
-  validateBtn.type = 'button';
-  validateBtn.className = 'px-2 py-1 rounded border border-white/20 text-muted text-xs hover:text-user transition';
-  validateBtn.textContent = 'Validate';
-  validateBtn.addEventListener('click', async () => {
-    validateBtn.disabled = true; validateBtn.textContent = 'Validating…';
-    const r = await fetch(`/api/providers/${p.id}/validate`, { method: 'POST' });
-    const j = await r.json();
-    validateBtn.disabled = false; validateBtn.textContent = 'Validate';
-    readyDot.className = 'w-2 h-2 rounded-full shrink-0 ' + (j.ok ? 'bg-verdictAgree' : 'bg-verdictDisagree/60');
-    readyDot.title = j.message || '';
-    if (onValidate) onValidate(p.id, j);
-  });
-
-  const saveBtn = document.createElement('button');
-  saveBtn.type = 'button';
-  saveBtn.className = 'px-2 py-1 rounded bg-codex/80 text-white text-xs hover:bg-codex transition';
-  saveBtn.textContent = 'Save';
-  saveBtn.addEventListener('click', async () => {
-    const patch = {
-      name: nameInp.querySelector('input').value,
-      type: typeSel.value,
-      enabled: enabledCk.checked,
-      models: _parseModelsText(modTA.value),
-    };
-    if (isCli) {
-      patch.binary = body.querySelector(`[name="_p_${p.id}_binary"]`)?.value || '';
-      patch.workdir = body.querySelector(`[name="_p_${p.id}_workdir"]`)?.value || '';
-    } else {
-      patch.api_key_env = body.querySelector(`[name="_p_${p.id}_api_key_env"]`)?.value || '';
-      patch.api_base_url = body.querySelector(`[name="_p_${p.id}_api_base_url"]`)?.value || '';
-    }
-    await fetch(`/api/providers/${p.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
-    });
-    if (onSave) onSave();
-  });
-
-  const delBtn = document.createElement('button');
-  delBtn.type = 'button';
-  delBtn.className = 'px-2 py-1 rounded border border-verdictDisagree/40 text-verdictDisagree text-xs hover:bg-verdictDisagree/20 transition';
-  delBtn.textContent = 'Delete';
-  delBtn.addEventListener('click', async () => {
-    if (!confirm(`Delete provider "${p.name}"?`)) return;
-    await fetch(`/api/providers/${p.id}`, { method: 'DELETE' });
-    card.remove();
-    if (onDelete) onDelete(p.id);
-  });
-
-  actRow.appendChild(validateBtn);
-  actRow.appendChild(saveBtn);
-  actRow.appendChild(delBtn);
-  body.appendChild(actRow);
-  card.appendChild(body);
-
-  toggleBtn.addEventListener('click', () => {
-    const open = body.style.display !== 'none';
-    body.style.display = open ? 'none' : 'flex';
-    toggleBtn.textContent = open ? '▾' : '▴';
-  });
-  enabledCk.addEventListener('change', () => { /* live preview only */ });
-
-  return card;
-}
-
-function _buildAddProviderForm(onAdded) {
-  const wrap = document.createElement('div');
-  wrap.className = 'border border-dashed border-white/20 rounded p-3 flex flex-col gap-2';
-
-  const hdr = document.createElement('p');
-  hdr.className = 'text-xs text-muted uppercase tracking-wider';
-  hdr.textContent = 'Add Provider';
-  wrap.appendChild(hdr);
-
-  const grid = document.createElement('div');
-  grid.className = 'grid grid-cols-2 gap-x-3 gap-y-2';
-
-  const idInp = _cfgTextInput('ID (unique slug)', '_new_id', '', 'e.g. groq');
-  const nameInp = _cfgTextInput('Display name', '_new_name', '', 'e.g. Groq');
-  const typeLbl = document.createElement('label');
-  typeLbl.className = 'flex flex-col gap-1 text-xs text-muted';
-  typeLbl.textContent = 'Type';
-  const typeSel = document.createElement('select');
-  typeSel.name = '_new_type';
-  typeSel.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none text-xs';
-  for (const t of ['openai_api', 'google_api', 'claude_sdk', 'codex_cli']) {
-    const o = document.createElement('option'); o.value = t; o.textContent = t; typeLbl.appendChild && 0;
-    typeSel.appendChild(o);
-  }
-  typeLbl.appendChild(typeSel);
-  const keyInp = _cfgTextInput('API key env var', '_new_api_key_env', '', 'e.g. GROQ_API_KEY');
-  grid.appendChild(idInp); grid.appendChild(nameInp);
-  grid.appendChild(typeLbl); grid.appendChild(keyInp);
-  wrap.appendChild(grid);
-
-  const addBtn = document.createElement('button');
-  addBtn.type = 'button';
-  addBtn.className = 'self-end px-3 py-1 rounded bg-codex/80 text-white text-xs hover:bg-codex transition';
-  addBtn.textContent = '+ Add';
-  addBtn.addEventListener('click', async () => {
-    const id = idInp.querySelector('input').value.trim();
-    const name = nameInp.querySelector('input').value.trim();
-    const type = typeSel.value;
-    const api_key_env = keyInp.querySelector('input').value.trim();
-    if (!id || !name) { alert('ID and name are required.'); return; }
-    await fetch('/api/providers', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, name, type, api_key_env }),
-    });
-    if (onAdded) onAdded();
-  });
-  wrap.appendChild(addBtn);
-  return wrap;
-}
-
 document.getElementById('btn-configure').addEventListener('click', async () => {
-  const [cfgRes, provRes] = await Promise.all([fetch('/api/config'), fetch('/api/providers')]);
-  const cfg = await cfgRes.json();
-  const providers = await provRes.json();
+  const res = await fetch('/api/config');
+  const cfg = await res.json();
   const form = document.getElementById('config-form');
   form.innerHTML = '';
   form.className = 'flex flex-col gap-4';
 
-  // helper to make a simple label+input
+  // ---- helper: build a single label+input field ----
   function makeField(f, targetEl) {
     const label = document.createElement('label');
     label.className = 'flex flex-col gap-1 text-xs text-muted';
     label.textContent = f.label;
     let input;
-    if (f.type === 'logging_level') {
+    if (f.type === 'select') {
+      input = document.createElement('select');
+      input.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none';
+      for (const m of MODEL_MATRIX[f.agentKey]) {
+        const o = document.createElement('option');
+        o.value = m.model;
+        o.textContent = `${m.label} (${m.model})`;
+        if (cfg[f.key] === m.model) o.selected = true;
+        input.appendChild(o);
+      }
+    } else if (f.type === 'logging_level') {
       input = document.createElement('select');
       input.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none disabled:opacity-40';
       for (const [val, lbl] of [['info', 'info'], ['debug', 'debug']]) {
@@ -1537,27 +1281,37 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
     targetEl.appendChild(label);
   }
 
-  // ---- providers section ----
-  const provSep = document.createElement('div');
-  provSep.className = 'border-t border-white/10 pt-1';
-  provSep.innerHTML = '<p class="text-xs text-muted uppercase tracking-wider mb-2">Providers</p>';
-  form.appendChild(provSep);
+  // ---- agent columns ----
+  const agentRow = document.createElement('div');
+  agentRow.className = 'flex gap-4';
 
-  const provList = document.createElement('div');
-  provList.className = 'flex flex-col gap-2';
-  const rebuildProviders = async () => {
-    provList.innerHTML = '';
-    const fresh = await fetch('/api/providers').then(r => r.json());
-    for (const p of fresh) {
-      provList.appendChild(_buildProviderCard(p, rebuildProviders, rebuildProviders, null));
-    }
-    provList.appendChild(_buildAddProviderForm(rebuildProviders));
-  };
-  for (const p of providers) {
-    provList.appendChild(_buildProviderCard(p, rebuildProviders, rebuildProviders, null));
-  }
-  provList.appendChild(_buildAddProviderForm(rebuildProviders));
-  form.appendChild(provList);
+  const claudeCol = document.createElement('div');
+  claudeCol.className = 'flex-1 flex flex-col gap-3';
+  const claudeHeader = document.createElement('p');
+  claudeHeader.className = 'text-xs text-claude uppercase tracking-wider font-bold';
+  claudeHeader.textContent = 'Claude';
+  claudeCol.appendChild(claudeHeader);
+  for (const f of [
+    { key: 'claude_binary', label: 'Binary path' },
+    { key: 'claude_model',  label: 'Model', type: 'select', agentKey: 'claude' },
+    { key: 'claude_workdir',label: 'Working dir' },
+  ]) makeField(f, claudeCol);
+
+  const codexCol = document.createElement('div');
+  codexCol.className = 'flex-1 flex flex-col gap-3';
+  const codexHeader = document.createElement('p');
+  codexHeader.className = 'text-xs text-codex uppercase tracking-wider font-bold';
+  codexHeader.textContent = 'Codex';
+  codexCol.appendChild(codexHeader);
+  for (const f of [
+    { key: 'codex_binary', label: 'Binary path' },
+    { key: 'codex_model',  label: 'Model', type: 'select', agentKey: 'codex' },
+    { key: 'codex_workdir',label: 'Working dir' },
+  ]) makeField(f, codexCol);
+
+  agentRow.appendChild(claudeCol);
+  agentRow.appendChild(codexCol);
+  form.appendChild(agentRow);
 
   // ---- session settings grid ----
   const sessionSep = document.createElement('div');
@@ -1676,7 +1430,6 @@ document.getElementById('btn-config-save').addEventListener('click', async () =>
   const data = {};
   for (const el of form.elements) {
     if (!el.name) continue;
-    if (el.name.startsWith('_')) continue;  // provider-specific fields saved individually
     if (el.type === 'checkbox') {
       data[el.name] = el.checked;
     } else if (el.tagName === 'TEXTAREA' && el.name === 'mcp_filesystem_paths') {
@@ -1878,11 +1631,9 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
   const cardMap = {}; // turn_id -> card DOM node
   let _sessionId = null;
   let _sessionNumber = fallbackSessionNumber || 0;
-  let _producerModel = '';
-  let _criticModel   = '';
-  let _producerName  = '';
-  let _criticName    = '';
-  let _roundLimit    = null;
+  let _claudeModel = '';
+  let _codexModel  = '';
+  let _roundLimit  = null;
   let _startedAt   = null;
   let goalCard = null; // hoisted so session_end can update it
 
@@ -1893,15 +1644,12 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
       const sessionNum = ev.payload?.session_number || fallbackSessionNumber || 0;
       _sessionId = ev.session_id || null;
       _sessionNumber = sessionNum;
-      // support both new (producer_model) and legacy (claude_model) field names
-      _producerModel = ev.payload?.producer_model || ev.payload?.claude_model || '';
-      _criticModel   = ev.payload?.critic_model   || ev.payload?.codex_model  || '';
-      _producerName  = ev.payload?.producer_name  || 'Producer';
-      _criticName    = ev.payload?.critic_name    || 'Critic';
-      _roundLimit    = ev.payload?.round_limit  ?? null;
-      _startedAt     = ev.payload?.started_at ? new Date(ev.payload.started_at) : null;
-      const metaModels = (_producerModel && _criticModel)
-        ? `${_producerName}: ${_producerModel} · ${_criticName}: ${_criticModel} · rounds: ${_roundLimit ?? '?'}`
+      _claudeModel = ev.payload?.claude_model || '';
+      _codexModel  = ev.payload?.codex_model  || '';
+      _roundLimit  = ev.payload?.round_limit  ?? null;
+      _startedAt   = ev.payload?.started_at ? new Date(ev.payload.started_at) : null;
+      const metaModels = (_claudeModel && _codexModel)
+        ? `Claude: ${_claudeModel} · Codex: ${_codexModel} · rounds: ${_roundLimit ?? '?'}`
         : '';
       goalCard = document.createElement('div');
       goalCard.className = 'kollab-goal-card rounded-lg border border-white/10 bg-panel p-3 flex flex-col gap-1.5';

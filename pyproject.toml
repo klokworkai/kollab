@@ -32,8 +32,6 @@ dependencies = [
     "tomli-w",
     "pydantic",
     "httpx>=0.27",
-    "openai>=1.0",
-    "google-genai>=1.0",
 ]
 
 [project.urls]

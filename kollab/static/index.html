@@ -165,43 +165,25 @@
       </div>
 
       <textarea id="goal-input" rows="4"
-        placeholder="Describe the goal for the agents to collaborate on…"
+        placeholder="Describe the goal for Claude and Codex to collaborate on…"
         class="bg-userPanel border border-white/20 rounded px-3 py-2 text-user
                placeholder-muted focus:outline-none focus:border-white/40 resize-none"></textarea>
 
       <div class="border-t border-white/10 pt-3 flex flex-col gap-3">
-        <p class="text-xs text-muted uppercase tracking-wider">Agents <span class="normal-case text-muted">(defaults from enabled providers)</span></p>
+        <p class="text-xs text-muted uppercase tracking-wider">Session overrides <span class="normal-case">(leave blank to use config defaults)</span></p>
 
-        <!-- producer row -->
+        <!-- models row -->
         <div class="flex gap-3">
           <label class="flex flex-col gap-1 text-xs text-muted flex-1">
-            Producer — provider
-            <select id="override-producer-provider"
+            Claude model
+            <select id="override-claude-model"
               class="bg-userPanel border border-white/20 rounded px-2 py-1.5 text-user focus:outline-none">
               <!-- options injected by app.js -->
             </select>
           </label>
           <label class="flex flex-col gap-1 text-xs text-muted flex-1">
-            Producer — model
-            <select id="override-producer-model"
-              class="bg-userPanel border border-white/20 rounded px-2 py-1.5 text-user focus:outline-none">
-              <!-- options injected by app.js -->
-            </select>
-          </label>
-        </div>
-
-        <!-- critic row -->
-        <div class="flex gap-3">
-          <label class="flex flex-col gap-1 text-xs text-muted flex-1">
-            Critic — provider
-            <select id="override-critic-provider"
-              class="bg-userPanel border border-white/20 rounded px-2 py-1.5 text-user focus:outline-none">
-              <!-- options injected by app.js -->
-            </select>
-          </label>
-          <label class="flex flex-col gap-1 text-xs text-muted flex-1">
-            Critic — model
-            <select id="override-critic-model"
+            Codex model
+            <select id="override-codex-model"
               class="bg-userPanel border border-white/20 rounded px-2 py-1.5 text-user focus:outline-none">
               <!-- options injected by app.js -->
             </select>
