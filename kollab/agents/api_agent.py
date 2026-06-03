@@ -66,6 +66,7 @@ class ApiAgent(Agent):
         )
 
     async def stop(self) -> None:
+        self._cancel = True  # abort any in-flight stream before clearing state
         self._history = []
         self._client = None
 

@@ -233,11 +233,15 @@ def _migrate_if_needed(data: dict) -> tuple[dict, bool]:
 
     claude_binary = data.pop("claude_binary", "claude")
     claude_workdir = data.pop("claude_workdir", "~/.kollab/workspace/claude")
-    data.pop("claude_model", None)
+    claude_model = data.pop("claude_model", None)
+    if claude_model:
+        log.warning("Migrating config: claude_model=%r discarded — set the default model via the Providers UI", claude_model)
 
     codex_binary = data.pop("codex_binary", "codex")
     codex_workdir = data.pop("codex_workdir", "~/.kollab/workspace/codex")
-    data.pop("codex_model", None)
+    codex_model = data.pop("codex_model", None)
+    if codex_model:
+        log.warning("Migrating config: codex_model=%r discarded — set the default model via the Providers UI", codex_model)
 
     provider_dicts: list[dict] = []
     for p in defaults:

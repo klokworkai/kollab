@@ -52,6 +52,7 @@ class GeminiAgent(Agent):
         yield AgentChunk(kind="done", content=full_response)
 
     async def stop(self) -> None:
+        self._cancel = True  # abort any in-flight stream before clearing state
         self._chat = None
         self._client = None
 

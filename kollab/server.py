@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import signal
 import shutil
 import subprocess
 import sys
@@ -260,7 +262,6 @@ async def validate_provider(provider_id: str) -> dict:
             return {"ok": False, "message": "timed out after 10s"}
 
     if p.type == "openai_api":
-        import os
         api_key = os.environ.get(p.api_key_env, "")
         if not api_key:
             return {"ok": False, "message": f"{p.api_key_env} not set in environment"}
@@ -281,7 +282,6 @@ async def validate_provider(provider_id: str) -> dict:
             return {"ok": False, "message": str(exc)[:200]}
 
     if p.type == "google_api":
-        import os
         api_key = os.environ.get(p.api_key_env, "")
         if not api_key:
             return {"ok": False, "message": f"{p.api_key_env} not set in environment"}
@@ -443,8 +443,6 @@ async def _resume_loop(session_id: str) -> None:
 
 @app.post("/api/shutdown", dependencies=[Depends(require_api_key)])
 async def shutdown() -> dict:
-    import signal
-    import os
     for session in list(_sessions.values()):
         if session.state not in ("done", "halted"):
             session.stop()
