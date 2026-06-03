@@ -1296,7 +1296,7 @@ function _modelsToText(models) {
 
 function _buildProviderCard(p, onSave, onDelete, onValidate) {
   const card = document.createElement('div');
-  card.className = 'border border-white/10 rounded p-3 flex flex-col gap-2 bg-userPanel/40';
+  card.className = 'border border-white/10 rounded p-3 flex flex-col gap-2';
 
   // header row
   const hdr = document.createElement('div');
@@ -1453,18 +1453,35 @@ function _buildProviderCard(p, onSave, onDelete, onValidate) {
 
 function _buildAddProviderForm(onAdded) {
   const wrap = document.createElement('div');
-  wrap.className = 'border border-dashed border-white/20 rounded p-3 flex flex-col gap-2';
+  wrap.className = 'flex justify-start pt-1';
 
-  const hdr = document.createElement('p');
-  hdr.className = 'text-xs text-muted uppercase tracking-wider';
-  hdr.textContent = 'Add Provider';
-  wrap.appendChild(hdr);
+  const openBtn = document.createElement('button');
+  openBtn.type = 'button';
+  openBtn.className = 'px-3 py-1.5 rounded border border-dashed border-white/30 text-muted text-xs hover:text-user hover:border-white/50 transition';
+  openBtn.textContent = '+ Add / Remove Provider';
+  openBtn.addEventListener('click', () => _openAddProviderModal(onAdded));
+  wrap.appendChild(openBtn);
+  return wrap;
+}
+
+function _openAddProviderModal(onAdded) {
+  const overlay = document.createElement('div');
+  overlay.className = 'fixed inset-0 bg-black/60 flex items-center justify-center z-[60]';
+
+  const box = document.createElement('div');
+  box.className = 'bg-panel border border-white/20 rounded-lg p-6 w-full max-w-md flex flex-col gap-4';
+
+  const hdrRow = document.createElement('div');
+  hdrRow.className = 'flex items-baseline justify-between';
+  hdrRow.innerHTML = '<h3 class="text-sm font-bold">Add Provider</h3><span class="text-xs text-muted opacity-40">Esc to cancel</span>';
+  box.appendChild(hdrRow);
 
   const grid = document.createElement('div');
-  grid.className = 'grid grid-cols-2 gap-x-3 gap-y-2';
+  grid.className = 'grid grid-cols-2 gap-x-3 gap-y-3';
 
-  const idInp = _cfgTextInput('ID (unique slug)', '_new_id', '', 'e.g. groq');
-  const nameInp = _cfgTextInput('Display name', '_new_name', '', 'e.g. Groq');
+  const idInp   = _cfgTextInput('ID (unique slug)', '_new_id',          '', 'e.g. groq');
+  const nameInp = _cfgTextInput('Display name',     '_new_name',        '', 'e.g. Groq');
+
   const typeLbl = document.createElement('label');
   typeLbl.className = 'flex flex-col gap-1 text-xs text-muted';
   typeLbl.textContent = 'Type';
@@ -1472,34 +1489,57 @@ function _buildAddProviderForm(onAdded) {
   typeSel.name = '_new_type';
   typeSel.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none text-xs';
   for (const t of ['openai_api', 'google_api', 'claude_sdk', 'codex_cli']) {
-    const o = document.createElement('option'); o.value = t; o.textContent = t; typeLbl.appendChild && 0;
+    const o = document.createElement('option'); o.value = t; o.textContent = t;
     typeSel.appendChild(o);
   }
   typeLbl.appendChild(typeSel);
-  const keyInp = _cfgTextInput('API key env var', '_new_api_key_env', '', 'e.g. GROQ_API_KEY');
+
+  const keyInp  = _cfgTextInput('API key env var', '_new_api_key_env', '', 'e.g. GROQ_API_KEY');
+
   grid.appendChild(idInp); grid.appendChild(nameInp);
   grid.appendChild(typeLbl); grid.appendChild(keyInp);
-  wrap.appendChild(grid);
+  box.appendChild(grid);
+
+  const btnRow = document.createElement('div');
+  btnRow.className = 'flex gap-2 justify-end';
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.type = 'button';
+  cancelBtn.className = 'px-4 py-1.5 rounded border border-white/20 text-muted hover:text-user transition text-xs';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', () => overlay.remove());
 
   const addBtn = document.createElement('button');
   addBtn.type = 'button';
-  addBtn.className = 'self-end px-3 py-1 rounded bg-codex/80 text-white text-xs hover:bg-codex transition';
-  addBtn.textContent = '+ Add';
+  addBtn.className = 'px-4 py-1.5 rounded bg-codex/80 text-white text-xs hover:bg-codex transition';
+  addBtn.textContent = 'Add';
   addBtn.addEventListener('click', async () => {
-    const id = idInp.querySelector('input').value.trim();
-    const name = nameInp.querySelector('input').value.trim();
-    const type = typeSel.value;
+    const id          = idInp.querySelector('input').value.trim();
+    const name        = nameInp.querySelector('input').value.trim();
+    const type        = typeSel.value;
     const api_key_env = keyInp.querySelector('input').value.trim();
     if (!id || !name) { alert('ID and name are required.'); return; }
-    await fetch('/api/providers', {
+    addBtn.disabled = true; addBtn.textContent = 'Adding…';
+    const r = await fetch('/api/providers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, name, type, api_key_env }),
     });
+    const j = await r.json();
+    if (!j.ok) { alert(j.errors?.join(' · ') || 'Error adding provider'); addBtn.disabled = false; addBtn.textContent = 'Add'; return; }
+    overlay.remove();
     if (onAdded) onAdded();
   });
-  wrap.appendChild(addBtn);
-  return wrap;
+
+  btnRow.appendChild(cancelBtn);
+  btnRow.appendChild(addBtn);
+  box.appendChild(btnRow);
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+
+  const onKey = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onKey); } };
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) { overlay.remove(); document.removeEventListener('keydown', onKey); } });
 }
 
 document.getElementById('btn-configure').addEventListener('click', async () => {
@@ -1575,14 +1615,15 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
   ]) makeField(f, sessionGrid);
   form.appendChild(sessionGrid);
 
-  // ---- MCP section ----
+  // ---- MCP section (disabled — not yet fully implemented across all providers) ----
   const mcpSep = document.createElement('div');
-  mcpSep.className = 'border-t border-white/10 pt-3';
-  mcpSep.innerHTML = '<p class="text-xs text-muted uppercase tracking-wider">MCP Tools</p>';
+  mcpSep.className = 'border-t border-white/10 pt-3 flex items-baseline gap-3';
+  mcpSep.innerHTML = '<p class="text-xs text-muted uppercase tracking-wider">MCP Tools</p>'
+    + '<span class="text-xs text-muted opacity-50 normal-case tracking-normal">— coming soon (all providers)</span>';
   form.appendChild(mcpSep);
 
-  const mcpRow = document.createElement('div');
-  mcpRow.className = 'flex gap-4';
+  const mcpDisabled = document.createElement('div');
+  mcpDisabled.className = 'opacity-40 pointer-events-none select-none flex gap-4';
 
   const mcpLeft = document.createElement('div');
   mcpLeft.className = 'flex-1 flex flex-col gap-3';
@@ -1612,14 +1653,9 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
   fsPathsLabel.appendChild(fsPathsInput);
   mcpRight.appendChild(fsPathsLabel);
 
-  mcpRow.appendChild(mcpLeft);
-  mcpRow.appendChild(mcpRight);
-  form.appendChild(mcpRow);
-
-  const githubSep = document.createElement('div');
-  githubSep.className = 'border-t border-white/10 pt-3';
-  githubSep.innerHTML = '<p class="text-xs text-muted uppercase tracking-wider">GitHub MCP — coming soon</p>';
-  form.appendChild(githubSep);
+  mcpDisabled.appendChild(mcpLeft);
+  mcpDisabled.appendChild(mcpRight);
+  form.appendChild(mcpDisabled);
 
   // ---- logging section ----
   const logSep = document.createElement('div');
