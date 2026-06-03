@@ -293,6 +293,14 @@ def save_config(cfg: Config) -> None:
 def validate_config(cfg: Config) -> list[str]:
     errors: list[str] = []
     for p in cfg.providers:
-        if p.enabled and p.type in ("claude_sdk", "codex_cli") and not p.binary:
-            errors.append(f"Provider '{p.id}' is enabled but has no binary configured")
+        if not p.enabled:
+            continue
+        if p.type in ("claude_sdk", "codex_cli"):
+            if not p.binary:
+                errors.append(f"Provider '{p.id}': no binary configured")
+            else:
+                binary = _expand(p.binary)
+                if not (shutil.which(binary) or
+                        (Path(binary).is_file() and os.access(binary, os.X_OK))):
+                    errors.append(f"Provider '{p.id}': binary '{p.binary}' not found in PATH")
     return errors
