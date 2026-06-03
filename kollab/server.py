@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -12,7 +14,11 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .config import Config, MODEL_ALIASES, load_config, save_config, validate_config, next_session_number
+from .config import (
+    Config, ProviderConfig, ProviderModel,
+    load_config, save_config, validate_config, next_session_number,
+    provider_is_ready,
+)
 from .ace import Session, SessionOverrides
 
 app = FastAPI(title="kollab")
@@ -32,18 +38,16 @@ _kollab_logger = logging.getLogger("kollab")
 
 
 def _apply_logging(cfg: Config) -> None:
-    """Configure or tear down file logging based on current config."""
     global _file_handler
     logger = _kollab_logger
 
-    # Remove existing file handler first
     if _file_handler is not None:
         logger.removeHandler(_file_handler)
         _file_handler.close()
         _file_handler = None
 
     if not cfg.logging_enabled:
-        logger.setLevel(logging.WARNING)  # effectively silent
+        logger.setLevel(logging.WARNING)
         return
 
     level = logging.DEBUG if cfg.logging_level == "debug" else logging.INFO
@@ -61,7 +65,6 @@ def _apply_logging(cfg: Config) -> None:
     logger.info("Logging started (level=%s, file=%s)", cfg.logging_level, _LOG_PATH)
 
 
-# Apply logging on startup from loaded config
 _apply_logging(_cfg)
 
 
@@ -69,7 +72,7 @@ _apply_logging(_cfg)
 
 async def require_api_key(authorization: str | None = Header(default=None)) -> None:
     if not _cfg.api_key:
-        return  # auth disabled — local browser use unaffected
+        return
     if authorization != f"Bearer {_cfg.api_key}":
         raise HTTPException(status_code=401, detail="Unauthorized")
 
@@ -115,7 +118,10 @@ class ConfigUpdate(BaseModel):
 async def post_config(body: ConfigUpdate) -> dict:
     global _cfg
     try:
-        updated = Config(**{**_cfg.model_dump(), **body.model_dump(exclude_unset=True)})
+        # providers are managed via /api/providers — exclude from this merge
+        body_data = body.model_dump(exclude_unset=True)
+        body_data.pop("providers", None)
+        updated = Config(**{**_cfg.model_dump(), **body_data})
     except Exception as exc:
         return {"ok": False, "errors": [str(exc)]}
     errors = validate_config(updated)
@@ -127,6 +133,175 @@ async def post_config(body: ConfigUpdate) -> dict:
     return {"ok": True}
 
 
+# ------------------------------------------------------------------ providers
+
+def _provider_dict(p: ProviderConfig) -> dict:
+    ready, msg = provider_is_ready(p)
+    d = p.model_dump()
+    d["is_ready"] = ready
+    d["ready_message"] = msg
+    return d
+
+
+@app.get("/api/providers", dependencies=[Depends(require_api_key)])
+async def list_providers() -> list[dict]:
+    return [_provider_dict(p) for p in _cfg.providers]
+
+
+class ProviderPatch(BaseModel):
+    model_config = {"extra": "ignore"}
+    name: str | None = None
+    binary: str | None = None
+    workdir: str | None = None
+    api_key_env: str | None = None
+    api_base_url: str | None = None
+    mcp_enabled: bool | None = None
+    enabled: bool | None = None
+    models: list[dict] | None = None  # list of {alias, model_id}
+
+
+class NewProviderBody(BaseModel):
+    id: str
+    name: str
+    type: str
+    binary: str = ""
+    auth_method: str = "env_var"
+    api_key_env: str = ""
+    api_base_url: str = ""
+    mcp_enabled: bool = False
+    workdir: str = ""
+    enabled: bool = True
+    models: list[dict] = []
+
+
+@app.post("/api/providers", dependencies=[Depends(require_api_key)])
+async def add_provider(body: NewProviderBody) -> dict:
+    global _cfg
+    if any(p.id == body.id for p in _cfg.providers):
+        return {"ok": False, "errors": [f"Provider '{body.id}' already exists"]}
+    try:
+        models = [ProviderModel(**m) for m in body.models]
+        new_p = ProviderConfig(
+            id=body.id, name=body.name, type=body.type,  # type: ignore[arg-type]
+            binary=body.binary, auth_method=body.auth_method,  # type: ignore[arg-type]
+            api_key_env=body.api_key_env, api_base_url=body.api_base_url,
+            mcp_enabled=body.mcp_enabled, workdir=body.workdir,
+            enabled=body.enabled, models=models,
+        )
+    except Exception as exc:
+        return {"ok": False, "errors": [str(exc)]}
+    _cfg.providers.append(new_p)
+    save_config(_cfg)
+    return {"ok": True, "provider": _provider_dict(new_p)}
+
+
+@app.patch("/api/providers/{provider_id}", dependencies=[Depends(require_api_key)])
+async def patch_provider(provider_id: str, body: ProviderPatch) -> dict:
+    global _cfg
+    p = next((x for x in _cfg.providers if x.id == provider_id), None)
+    if p is None:
+        raise HTTPException(status_code=404, detail=f"Provider '{provider_id}' not found")
+    if body.name is not None:
+        p.name = body.name
+    if body.binary is not None:
+        p.binary = body.binary
+    if body.workdir is not None:
+        p.workdir = body.workdir
+    if body.api_key_env is not None:
+        p.api_key_env = body.api_key_env
+    if body.api_base_url is not None:
+        p.api_base_url = body.api_base_url
+    if body.mcp_enabled is not None:
+        p.mcp_enabled = body.mcp_enabled
+    if body.enabled is not None:
+        p.enabled = body.enabled
+    if body.models is not None:
+        try:
+            p.models = [ProviderModel(**m) for m in body.models]
+        except Exception as exc:
+            return {"ok": False, "errors": [str(exc)]}
+    save_config(_cfg)
+    return {"ok": True, "provider": _provider_dict(p)}
+
+
+@app.delete("/api/providers/{provider_id}", dependencies=[Depends(require_api_key)])
+async def delete_provider(provider_id: str) -> dict:
+    global _cfg
+    before = len(_cfg.providers)
+    _cfg.providers = [p for p in _cfg.providers if p.id != provider_id]
+    if len(_cfg.providers) == before:
+        raise HTTPException(status_code=404, detail=f"Provider '{provider_id}' not found")
+    save_config(_cfg)
+    return {"ok": True}
+
+
+@app.post("/api/providers/{provider_id}/validate", dependencies=[Depends(require_api_key)])
+async def validate_provider(provider_id: str) -> dict:
+    p = next((x for x in _cfg.providers if x.id == provider_id), None)
+    if p is None:
+        raise HTTPException(status_code=404, detail=f"Provider '{provider_id}' not found")
+
+    if p.type in ("claude_sdk", "codex_cli"):
+        binary = shutil.which(p.binary) or p.binary
+        if not binary:
+            return {"ok": False, "message": f"binary '{p.binary}' not found in PATH"}
+        try:
+            result = subprocess.run(
+                [binary, "--version"],
+                capture_output=True, text=True, timeout=10,
+            )
+            out = (result.stdout or result.stderr or "").strip()
+            if result.returncode == 0:
+                return {"ok": True, "message": out or "OK"}
+            return {"ok": False, "message": out or f"exited {result.returncode}"}
+        except FileNotFoundError:
+            return {"ok": False, "message": f"binary '{p.binary}' not found"}
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "message": "timed out after 10s"}
+
+    if p.type == "openai_api":
+        import os
+        api_key = os.environ.get(p.api_key_env, "")
+        if not api_key:
+            return {"ok": False, "message": f"{p.api_key_env} not set in environment"}
+        try:
+            import openai
+            client = openai.AsyncOpenAI(
+                api_key=api_key,
+                base_url=p.api_base_url or None,
+            )
+            model = p.models[0].model_id if p.models else "gpt-4o-mini"
+            await client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": "hi"}],
+                max_tokens=1,
+            )
+            return {"ok": True, "message": f"{p.api_key_env} validated"}
+        except Exception as exc:
+            return {"ok": False, "message": str(exc)[:200]}
+
+    if p.type == "google_api":
+        import os
+        api_key = os.environ.get(p.api_key_env, "")
+        if not api_key:
+            return {"ok": False, "message": f"{p.api_key_env} not set in environment"}
+        try:
+            from google import genai
+            from google.genai import types as genai_types
+            client = genai.Client(api_key=api_key)
+            model = p.models[0].model_id if p.models else "gemini-1.5-flash"
+            await client.aio.models.generate_content(
+                model=model,
+                contents="hi",
+                config=genai_types.GenerateContentConfig(max_output_tokens=1),
+            )
+            return {"ok": True, "message": f"{p.api_key_env} validated"}
+        except Exception as exc:
+            return {"ok": False, "message": str(exc)[:200]}
+
+    return {"ok": False, "message": "unknown provider type"}
+
+
 # ------------------------------------------------------------------ session
 
 class StartSessionBody(BaseModel):
@@ -134,8 +309,10 @@ class StartSessionBody(BaseModel):
     round_limit: int | None = None
     max_tokens_per_turn: int | None = None
     max_tokens_per_session: int | None = None
-    claude_model: str | None = None
-    codex_model: str | None = None
+    producer_provider_id: str | None = None
+    producer_model: str | None = None
+    critic_provider_id: str | None = None
+    critic_model: str | None = None
 
 
 class UserInputBody(BaseModel):
@@ -165,17 +342,14 @@ async def get_session_state(session_id: str | None = None) -> dict:
 
 @app.post("/api/session", dependencies=[Depends(require_api_key)])
 async def start_session(body: StartSessionBody) -> dict:
-    def _resolve(model: str | None) -> str | None:
-        if model is None:
-            return None
-        return MODEL_ALIASES.get(model, model)
-
     overrides = SessionOverrides(
         round_limit=body.round_limit,
         max_tokens_per_turn=body.max_tokens_per_turn,
         max_tokens_per_session=body.max_tokens_per_session,
-        claude_model=_resolve(body.claude_model),
-        codex_model=_resolve(body.codex_model),
+        producer_provider_id=body.producer_provider_id,
+        producer_model=body.producer_model,
+        critic_provider_id=body.critic_provider_id,
+        critic_model=body.critic_model,
     )
     session = Session(_cfg, _broadcast, overrides=overrides,
                       session_number=next_session_number(_cfg))
@@ -224,7 +398,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
     _ws_clients.append(ws)
     try:
         while True:
-            await ws.receive_text()  # keep connection alive; client sends nothing
+            await ws.receive_text()
     except WebSocketDisconnect:
         pass
     finally:
@@ -307,8 +481,6 @@ async def list_sessions() -> list[dict]:
         if "session_id" in entry:
             results.append(entry)
     results.sort(key=lambda x: x.get("started_at", ""), reverse=True)
-    # Retroactively assign session numbers to legacy sessions (session_number == 0).
-    # Sort oldest-first, assign 1..N only to those missing a number.
     unumbered = [r for r in results if not r.get("session_number")]
     unumbered.sort(key=lambda x: x.get("started_at", ""))
     for i, r in enumerate(unumbered, start=1):
@@ -353,7 +525,6 @@ async def export_session(session_id: str, session_number: int = 0) -> Any:
 
     md = _render_export_md(events, session_id, session_number)
 
-    # Derive filename: prefer JSONL payload, fall back to query param
     sn = 0
     started_at = ""
     for ev in events:
@@ -375,9 +546,7 @@ async def export_session(session_id: str, session_number: int = 0) -> Any:
 
 
 def _render_export_md(events: list[dict], session_id: str, fallback_session_number: int = 0) -> str:
-    """Render a full-fidelity markdown transcript from a session's JSONL events."""
     lines: list[str] = []
-
     goal = ""
     session_number = 0
     started_at = ""
@@ -392,7 +561,7 @@ def _render_export_md(events: list[dict], session_id: str, fallback_session_numb
             session_number = ev.get("payload", {}).get("session_number", 0) or fallback_session_number
             started_at = ts_short
             num_label = f"#{session_number}" if session_number else session_id
-            lines.append(f"# koll\u2660b Session Export — {num_label}")
+            lines.append(f"# koll♠b Session Export — {num_label}")
             lines.append("")
             lines.append(f"**Session:** {num_label}  ")
             lines.append(f"**Started:** {started_at}  ")
@@ -418,7 +587,6 @@ def _render_export_md(events: list[dict], session_id: str, fallback_session_numb
 
         elif kind == "turn_end":
             payload = ev.get("payload", {})
-            turn_id = ev.get("turn_id", "")
             verdict = payload.get("verdict") or ""
             thread_id = payload.get("thread_id") or ""
             duration_ms = payload.get("duration_ms") or 0
@@ -452,7 +620,6 @@ def _render_export_md(events: list[dict], session_id: str, fallback_session_numb
 
         elif kind == "turn_interrupted":
             payload = ev.get("payload", {})
-            turn_id = ev.get("turn_id", "")
             thread_id = payload.get("thread_id") or ""
             reasoning = payload.get("reasoning") or ""
             text = payload.get("text") or ""

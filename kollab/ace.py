@@ -9,10 +9,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
+from .agents import make_agent
 from .agents.base import AgentChunk
-from .agents.claude_agent import ClaudeAgent
-from .agents.codex_agent import CodexAgent
-from .config import Config
+from .config import Config, ProviderConfig
 from .prompts import (
     SYSTEM_CRITIC, SYSTEM_PRODUCER,
     build_first_turn_prompt, build_turn_prompt,
@@ -40,8 +39,10 @@ class SessionOverrides:
     round_limit: int | None = None
     max_tokens_per_turn: int | None = None
     max_tokens_per_session: int | None = None
-    claude_model: str | None = None
-    codex_model: str | None = None
+    producer_provider_id: str | None = None
+    producer_model: str | None = None
+    critic_provider_id: str | None = None
+    critic_model: str | None = None
 
 
 @dataclass
@@ -76,43 +77,30 @@ class Session:
         self._max_tokens_per_turn: int | None = ov.max_tokens_per_turn
         self._max_tokens_per_session: int | None = ov.max_tokens_per_session
         self._session_tokens: int = 0
-        self._claude = ClaudeAgent(
-            role="producer",
-            binary=cfg.claude_binary,
-            model=ov.claude_model or cfg.claude_model,
-            workdir=Path(cfg.claude_workdir).expanduser().__str__(),
-            mcp_filesystem_enabled=cfg.mcp_filesystem_enabled,
-            mcp_filesystem_paths=[Path(p).expanduser().__str__() for p in cfg.mcp_filesystem_paths],
-        )
-        self._codex = CodexAgent(
-            role="critic",
-            binary=cfg.codex_binary,
-            model=ov.codex_model or cfg.codex_model,
-            workdir=Path(cfg.codex_workdir).expanduser().__str__(),
-            mcp_filesystem_enabled=cfg.mcp_filesystem_enabled,
-            mcp_filesystem_paths=[Path(p).expanduser().__str__() for p in cfg.mcp_filesystem_paths],
-        )
-        self.claude_model: str = ov.claude_model or cfg.claude_model
-        self.codex_model: str = ov.codex_model or cfg.codex_model
+
+        producer_prov = _resolve_provider(cfg, ov.producer_provider_id, 0)
+        critic_prov   = _resolve_provider(cfg, ov.critic_provider_id, 1)
+        self.producer_model: str = _resolve_model(producer_prov, ov.producer_model)
+        self.critic_model: str   = _resolve_model(critic_prov, ov.critic_model)
+        self.producer_provider_id: str = producer_prov.id
+        self.critic_provider_id: str   = critic_prov.id
+        self.producer_name: str = producer_prov.name
+        self.critic_name: str   = critic_prov.name
+
+        self._producer = make_agent(producer_prov, "producer", self.producer_model, cfg)
+        self._critic   = make_agent(critic_prov,   "critic",   self.critic_model,   cfg)
+
         self._transcript: TranscriptLog | None = None
         self._claude_turn_count: int = 0
         self._codex_turn_count: int = 0
-        # Completed (non-interrupted) turn counts — drive round numbering.
         self._claude_completed: int = 0
         self._codex_completed: int = 0
-        # Per-actor directive queues. Each entry is a string directive.
-        # Keyed by 'claude' or 'codex'. Directives sent to 'both' are written
-        # into both queues. Multiple directives accumulate instead of overwriting.
+        # Directive queues keyed by actor ("claude" / "codex") — API matches existing frontend.
         self._pending_directives: dict[str, list[str]] = {"claude": [], "codex": []}
         self._halt_requested: bool = False
         self._done_reason: str = ""
         self._halt_timeout_secs: int = cfg.halt_timeout_secs
         self._halt_timer_task: asyncio.Task | None = None
-        # Mid-turn halt tracking. After a mid-stream halt, _interrupted_agent
-        # is the actor that was running. resume() reads this to know which
-        # agent should run next (the same one that was interrupted) and sets
-        # _resume_after_halt so the next prompt build prepends a notice telling
-        # the agent to disregard its previous in-flight response.
         self._interrupted_agent: str | None = None
         self._resume_after_halt: bool = False
 
@@ -127,21 +115,29 @@ class Session:
                    "round": 0, "payload": {
                        "goal": goal,
                        "session_number": self.session_number,
-                       "claude_model": self.claude_model,
-                       "codex_model": self.codex_model,
+                       "producer_provider_id": self.producer_provider_id,
+                       "critic_provider_id": self.critic_provider_id,
+                       "producer_name": self.producer_name,
+                       "critic_name": self.critic_name,
+                       "producer_model": self.producer_model,
+                       "critic_model": self.critic_model,
                        "round_limit": self._round_limit,
                        "started_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                    }})
         self._broadcast({"type": "state", "state": "fanning_out", "round": 0,
                          "session_number": self.session_number,
                          "session_id": self.id,
-                         "claude_model": self.claude_model,
-                         "codex_model": self.codex_model,
+                         "producer_provider_id": self.producer_provider_id,
+                         "critic_provider_id": self.critic_provider_id,
+                         "producer_name": self.producer_name,
+                         "critic_name": self.critic_name,
+                         "producer_model": self.producer_model,
+                         "critic_model": self.critic_model,
                          "round_limit": self._round_limit})
         self.state = "fanning_out"
         await asyncio.gather(
-            self._claude.start(SYSTEM_PRODUCER, goal),
-            self._codex.start(SYSTEM_CRITIC, goal),
+            self._producer.start(SYSTEM_PRODUCER, goal),
+            self._critic.start(SYSTEM_CRITIC, goal),
         )
         self.state = "claude_turn"
         self._broadcast({"type": "state", "state": "claude_turn", "round": 1})
@@ -152,10 +148,10 @@ class Session:
             return
 
         is_claude = self.state == "claude_turn"
-        agent = self._claude if is_claude else self._codex
+        agent = self._producer if is_claude else self._critic
         actor = "claude" if is_claude else "codex"
-        role = "producer" if is_claude else "critic"
-        peer_name = "Codex" if is_claude else "Claude"
+        role  = "producer" if is_claude else "critic"
+        peer_name = self.critic_name if is_claude else self.producer_name
 
         if is_claude:
             self._claude_turn_count += 1
@@ -164,9 +160,6 @@ class Session:
             self._codex_turn_count += 1
             turn_id = f"X-{self._codex_turn_count}"
 
-        # Round = ceil((completed_claude + completed_codex + 1) / 2). The
-        # +1 accounts for *this* turn-in-progress; interrupted turns never
-        # increment the completed counters so they don't inflate the round.
         self.round = (self._claude_completed + self._codex_completed + 1 + 1) // 2
 
         turn = Turn(id=turn_id, actor=actor, role=role, round=self.round)
@@ -174,25 +167,18 @@ class Session:
         log.info("turn_start %s actor=%s round=%d", turn_id, actor, self.round)
         self._log({"kind": "turn_start", "turn_id": turn_id, "actor": actor,
                    "role": role, "round": self.round, "payload": {}})
-        model = self.claude_model if is_claude else self.codex_model
+        model = self.producer_model if is_claude else self.critic_model
         self._broadcast({"type": "turn_start", "turn_id": turn_id,
                          "actor": actor, "role": role, "round": self.round,
                          "model": model})
 
-        # ------ build prompt ------
-        # Consume all pending directives for this actor and concatenate them.
         queue = self._pending_directives[actor]
         user_injection = "\n".join(queue) if queue else ""
         self._pending_directives[actor] = []
 
         resume_after_halt = self._resume_after_halt
-        # Whether or not we use the resume prefix on this turn, we consume
-        # the flag here — only the first turn after a halt gets the notice.
         self._resume_after_halt = False
 
-        # First-real-turn detection: no completed peer turn exists yet. This
-        # covers two cases — the very first turn of the session, and the
-        # case where C-1 was interrupted before X-1 ever ran.
         last_peer_turn = self._last_turn_for("codex" if is_claude else "claude")
         if last_peer_turn is None:
             prompt = build_first_turn_prompt(
@@ -212,7 +198,6 @@ class Session:
         if self._max_tokens_per_turn:
             prompt += f"\n[Keep this response under {self._max_tokens_per_turn} tokens.]"
 
-        # ------ stream the response ------
         self._halt_requested = False
         interrupted_mid_stream = False
         interrupt_signaled = False
@@ -220,10 +205,6 @@ class Session:
         turn_tokens_out = 0
         turn_thread_id = ""
         async for chunk in agent.send(prompt):
-            # On halt: signal the agent to cancel (best effort) and stop
-            # accumulating chunks into the turn. We DO continue iterating so
-            # the underlying SDK / subprocess pipe drains naturally and is
-            # ready for the next turn.
             if self._halt_requested:
                 interrupted_mid_stream = True
                 if not interrupt_signaled:
@@ -234,7 +215,7 @@ class Session:
                     except Exception as exc:
                         log.warning("interrupt() raised: %s", exc)
                 log.debug("drain chunk kind=%s turn=%s", chunk.kind, turn_id)
-                continue  # drain remaining chunks but ignore them
+                continue
 
             if chunk.kind == "text":
                 turn.text += chunk.content
@@ -248,52 +229,33 @@ class Session:
                 meta = chunk.metadata or {}
                 turn_tokens_in = meta.get("tokens_in") or 0
                 turn_tokens_out = meta.get("tokens_out") or 0
-                if actor == "claude":
-                    turn_thread_id = meta.get("session_id") or self._claude._session_id or ""
-                else:
-                    turn_thread_id = self._codex._session_id or ""
+                turn_thread_id = meta.get("session_id") or agent.thread_id
                 self._broadcast({"type": "turn_chunk", "turn_id": turn_id,
                                  "kind": "done", "content": ""})
 
         self._session_tokens += turn_tokens_in + turn_tokens_out
 
-        # capture thread IDs after stream ends (agent._session_id is set by done chunk)
         if not turn_thread_id:
-            if actor == "claude":
-                turn_thread_id = self._claude._session_id or ""
-            else:
-                turn_thread_id = self._codex._session_id or ""
+            turn_thread_id = agent.thread_id
 
         turn.ended_at = datetime.now(timezone.utc)
-
-        # Strip <tldr> from turn text before it enters conversation history or logs.
         turn.text, turn.summary = _parse_tldr(turn.text)
 
-        # ------ interrupted path ------
         if self.state == "halted" and interrupted_mid_stream:
             turn.interrupted = True
             log.info("turn_interrupted %s actor=%s partial_len=%d", turn_id, actor, len(turn.text))
-            # Keep the turn in self.turns as a permanent observable artifact.
-            # Do NOT pop, do NOT decrement counters — turn IDs must remain
-            # stable. Completed counters are NOT incremented (per spec, this
-            # turn never happened from the dialogue's perspective).
             self._log({"kind": "turn_interrupted", "turn_id": turn_id, "actor": actor,
                        "role": role, "round": self.round,
                        "payload": {"text": turn.text, "reasoning": turn.reasoning,
                                    "thread_id": turn_thread_id}})
             self._interrupted_agent = actor
-            # Inform UI: turn_cancel decorates the partial card; state goes halted.
             self._broadcast({"type": "turn_cancel", "turn_id": turn_id})
-            self._broadcast({"type": "state", "state": "halted",
-                             "round": self.round})
+            self._broadcast({"type": "state", "state": "halted", "round": self.round})
             await self._emit("halt", {"round": self.round})
             return
 
-        # ------ normal completion ------
         turn.verdict = _parse_verdict(turn.text)
-        duration_ms = int(
-            (turn.ended_at - turn.started_at).total_seconds() * 1000
-        )
+        duration_ms = int((turn.ended_at - turn.started_at).total_seconds() * 1000)
         log.info("turn_end %s actor=%s verdict=%s duration_ms=%d tokens_in=%d tokens_out=%d",
                  turn_id, actor, turn.verdict, duration_ms, turn_tokens_in, turn_tokens_out)
         if is_claude:
@@ -312,16 +274,10 @@ class Session:
                          "session_id": self.id})
 
         if self.state == "halted":
-            # Clean halt that arrived between chunks but after the stream
-            # ended naturally — treat as not-interrupted.
-            self._broadcast({"type": "state", "state": "halted",
-                             "round": self.round})
+            self._broadcast({"type": "state", "state": "halted", "round": self.round})
             await self._emit("halt", {"round": self.round})
             return
 
-        # convergence tracking
-        # Codex is the critic — a Codex AGREE means the debate is over,
-        # regardless of what Claude said. No need for Claude to acknowledge.
         if not is_claude and turn.verdict == "AGREE":
             self._done_reason = "convergence"
             self.state = "done"
@@ -334,8 +290,7 @@ class Session:
         else:
             self.state = "codex_turn" if is_claude else "claude_turn"
 
-        self._broadcast({"type": "state", "state": self.state,
-                         "round": self.round})
+        self._broadcast({"type": "state", "state": self.state, "round": self.round})
         if self.state == "done":
             self._log({"kind": "session_end", "actor": "system", "role": "system",
                        "round": self.round, "payload": {"reason": self._done_reason}})
@@ -343,14 +298,9 @@ class Session:
                              "session_id": self.id, "session_number": self.session_number,
                              "round_limit": self._round_limit})
 
-        # Webhook emission — after all JSONL writes and WebSocket broadcasts.
         _turn_fields = {
-            "round": self.round,
-            "turn_id": turn_id,
-            "actor": actor,
-            "role": role,
-            "verdict": turn.verdict,
-            "turn_text": turn.text,
+            "round": self.round, "turn_id": turn_id, "actor": actor,
+            "role": role, "verdict": turn.verdict, "turn_text": turn.text,
         }
         await self._emit("turn_end", _turn_fields)
         if turn.verdict == "DISAGREE":
@@ -360,19 +310,14 @@ class Session:
         if self.state == "done":
             if self._done_reason == "round_limit":
                 await self._emit("round_limit", {
-                    "round": self.round,
-                    "round_limit": self._round_limit,
+                    "round": self.round, "round_limit": self._round_limit,
                     "end_reason": "round_limit",
                 })
-            await self._emit("session_end", {
-                "round": self.round,
-                "end_reason": self._done_reason,
-            })
+            await self._emit("session_end", {"round": self.round, "end_reason": self._done_reason})
 
     async def handle_user_input(self, text: str, target: str = "both") -> None:
         self._log({"kind": "user_input", "actor": "user", "role": "user",
                    "round": self.round, "payload": {"text": text, "target": target}})
-        # Accumulate into per-actor queues. 'both' fans out to each queue.
         if target in ("claude", "both"):
             self._pending_directives["claude"].append(text)
         if target in ("codex", "both"):
@@ -383,17 +328,14 @@ class Session:
         log.info("session_stop id=%s state=%s", self.id, self.state)
         self.state = "halted"
         self._halt_requested = True
-        # cancel any existing timer first
         if self._halt_timer_task and not self._halt_timer_task.done():
             self._halt_timer_task.cancel()
-        # schedule auto-expiry if timeout is configured
         if self._halt_timeout_secs > 0:
             self._halt_timer_task = asyncio.create_task(
                 self._halt_timeout_task(self._halt_timeout_secs)
             )
 
     async def _halt_timeout_task(self, seconds: int) -> None:
-        """Auto-expire the session if still halted after `seconds`."""
         try:
             await asyncio.sleep(seconds)
         except asyncio.CancelledError:
@@ -415,36 +357,28 @@ class Session:
         if self.state != "halted":
             return
         log.info("session_resume id=%s interrupted_agent=%s", self.id, self._interrupted_agent)
-        # cancel halt timer
         if self._halt_timer_task and not self._halt_timer_task.done():
             self._halt_timer_task.cancel()
             self._halt_timer_task = None
 
         if self._interrupted_agent is not None:
-            # Mid-stream halt — the same agent that was interrupted runs again
-            # with a fresh prompt built from clean history (interrupted turns
-            # are filtered out by _last_turn_for). The next prompt gets a
-            # "disregard previous in-flight" prefix so the agent doesn't
-            # try to continue its abandoned thought.
             self.state = "claude_turn" if self._interrupted_agent == "claude" else "codex_turn"
             self._interrupted_agent = None
             self._resume_after_halt = True
         else:
-            # Clean halt between turns — peer goes next.
             if self.turns and self.turns[-1].actor == "claude":
                 self.state = "codex_turn"
             else:
                 self.state = "claude_turn"
 
-        self._broadcast({"type": "state", "state": self.state,
-                         "round": self.round})
+        self._broadcast({"type": "state", "state": self.state, "round": self.round})
 
     async def close(self) -> None:
         if self._halt_timer_task and not self._halt_timer_task.done():
             self._halt_timer_task.cancel()
         await asyncio.gather(
-            self._claude.stop(),
-            self._codex.stop(),
+            self._producer.stop(),
+            self._critic.stop(),
             return_exceptions=True,
         )
         if self._transcript:
@@ -453,7 +387,6 @@ class Session:
     # ------------------------------------------------------------------ helpers
 
     async def _emit(self, event_type: str, extra: dict | None = None) -> None:
-        """Build common fields, merge extra, fire webhook. Swallows all errors."""
         payload: dict = {
             "session_id": self.id,
             "session_number": self.session_number,
@@ -473,9 +406,6 @@ class Session:
             self._transcript.append(event)
 
     def _last_turn_for(self, actor: str) -> Turn | None:
-        """Return the most recent COMPLETED turn for `actor`. Interrupted
-        turns are skipped — per spec, an interrupted turn is invisible to
-        downstream prompt building."""
         for t in reversed(self.turns):
             if t.actor == actor and not t.interrupted:
                 return t
@@ -489,6 +419,31 @@ def _make_session_id() -> str:
     return f"sess_{uuid.uuid4().hex[:8]}"
 
 
+def _resolve_provider(cfg: Config, provider_id: str | None, fallback_idx: int) -> ProviderConfig:
+    enabled = [p for p in cfg.providers if p.enabled]
+    if provider_id:
+        match = next((p for p in enabled if p.id == provider_id), None)
+        if match:
+            return match
+        match = next((p for p in cfg.providers if p.id == provider_id), None)
+        if match:
+            return match
+    if enabled and fallback_idx < len(enabled):
+        return enabled[fallback_idx]
+    if cfg.providers:
+        return cfg.providers[min(fallback_idx, len(cfg.providers) - 1)]
+    raise ValueError("No providers configured")
+
+
+def _resolve_model(provider: ProviderConfig, model_alias_or_id: str | None) -> str:
+    if not model_alias_or_id:
+        return provider.models[0].model_id if provider.models else ""
+    for m in provider.models:
+        if m.alias == model_alias_or_id:
+            return m.model_id
+    return model_alias_or_id
+
+
 def _parse_verdict(text: str) -> Verdict | None:
     m = _VERDICT_RE.search(text)
     if m:
@@ -497,8 +452,6 @@ def _parse_verdict(text: str) -> Verdict | None:
 
 
 def _parse_tldr(text: str) -> tuple[str, str]:
-    """Extract <tldr> summary and return (cleaned_text, summary).
-    The <tldr> block is stripped from the text so it never reaches the next agent."""
     m = _TLDR_RE.search(text)
     if not m:
         return text, ""
