@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>kollab — AI Provider Comparison</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f5f5f3;
+    --bg-tertiary: #ebebea;
+    --text-primary: #1a1a18;
+    --text-secondary: #6b6b67;
+    --border: rgba(0,0,0,0.12);
+    --border-strong: rgba(0,0,0,0.22);
+    --green-bg: #E1F5EE; --green-text: #0F6E56;
+    --blue-bg: #E6F1FB; --blue-text: #185FA5;
+    --amber-bg: #FAEEDA; --amber-text: #854F0B;
+    --gray-bg: #F1EFE8; --gray-text: #5F5E5A;
+    --purple-bg: #EEEDFE; --purple-text: #3C3489;
+    --coral-bg: #FAECE7; --coral-text: #993C1D;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg-primary: #1e1e1c;
+      --bg-secondary: #2a2a28;
+      --bg-tertiary: #333330;
+      --text-primary: #e8e8e4;
+      --text-secondary: #9a9a94;
+      --border: rgba(255,255,255,0.1);
+      --border-strong: rgba(255,255,255,0.2);
+      --green-bg: #085041; --green-text: #9FE1CB;
+      --blue-bg: #0C447C; --blue-text: #B5D4F4;
+      --amber-bg: #633806; --amber-text: #FAC775;
+      --gray-bg: #444441; --gray-text: #D3D1C7;
+      --purple-bg: #3C3489; --purple-text: #CECBF6;
+      --coral-bg: #712B13; --coral-text: #F5C4B3;
+    }
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    padding: 2rem 1rem;
+    min-height: 100vh;
+  }
+
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  header {
+    margin-bottom: 2rem;
+  }
+
+  header h1 {
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+  }
+
+  header p {
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  .card {
+    background: var(--bg-primary);
+    border: 0.5px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 2rem;
+  }
+
+  .card-title {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 14px 16px 10px;
+    border-bottom: 0.5px solid var(--border);
+  }
+
+  .tbl-wrap { overflow-x: auto; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  th {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 8px 12px;
+    border-bottom: 0.5px solid var(--border);
+    text-align: left;
+    white-space: nowrap;
+    background: var(--bg-secondary);
+  }
+
+  td {
+    padding: 8px 12px;
+    border-bottom: 0.5px solid var(--border);
+    color: var(--text-primary);
+    vertical-align: middle;
+  }
+
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--bg-secondary); }
+
+  td.num {
+    text-align: right;
+    font-family: "SF Mono", "Fira Code", monospace;
+    font-size: 12px;
+  }
+
+  .sect td {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    padding: 10px 12px 4px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    background: var(--bg-secondary);
+    border-bottom: 0.5px solid var(--border);
+  }
+
+  .pill {
+    display: inline-block;
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    margin: 1px;
+    white-space: nowrap;
+    font-weight: 500;
+  }
+
+  .tier {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  .p-yes    { background: var(--green-bg);  color: var(--green-text); }
+  .p-no     { background: var(--gray-bg);   color: var(--gray-text); }
+  .p-key    { background: var(--purple-bg); color: var(--purple-text); }
+  .p-oath   { background: var(--coral-bg);  color: var(--coral-text); }
+
+  .t-frontier { background: var(--green-bg);  color: var(--green-text); }
+  .t-high     { background: var(--blue-bg);   color: var(--blue-text); }
+  .t-mid      { background: var(--amber-bg);  color: var(--amber-text); }
+  .t-budget   { background: var(--gray-bg);   color: var(--gray-text); }
+
+  .note {
+    font-size: 11px;
+    color: var(--text-secondary);
+    padding: 10px 16px;
+    border-top: 0.5px solid var(--border);
+    line-height: 1.6;
+  }
+
+  .flag { font-size: 11px; color: var(--text-secondary); font-style: italic; }
+  .fw   { font-weight: 500; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <h1>koll♠b — AI Provider Reference</h1>
+    <p>Provider registry, auth, session compatibility, and pricing. June 2026.</p>
+  </header>
+
+  <!-- TABLE 1: Provider Comparison -->
+  <div class="card">
+    <div class="card-title">Provider comparison — session, auth, API, quality &amp; use case</div>
+    <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Provider</th>
+          <th>Session history</th>
+          <th>Auth</th>
+          <th>OpenAI-compat</th>
+          <th>Quality tier</th>
+          <th>Popularity</th>
+          <th>Best use case for kollab</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="sect"><td colspan="7">Tier 1 — Already in roadmap</td></tr>
+        <tr>
+          <td class="fw">Anthropic (Claude)</td>
+          <td><span class="pill p-yes">Server-side SDK</span></td>
+          <td><span class="pill p-oath">OAuth</span><span class="pill p-key">API key</span></td>
+          <td><span class="pill p-no">No</span></td>
+          <td><span class="tier t-frontier">Frontier</span></td>
+          <td class="flag">★★★★★</td>
+          <td class="flag">Producer / Architect</td>
+        </tr>
+        <tr>
+          <td class="fw">OpenAI (GPT / Codex)</td>
+          <td><span class="pill p-yes">CLI thread resume</span></td>
+          <td><span class="pill p-oath">OAuth</span><span class="pill p-key">API key</span></td>
+          <td><span class="pill p-yes">Yes (native)</span></td>
+          <td><span class="tier t-frontier">Frontier</span></td>
+          <td class="flag">★★★★★</td>
+          <td class="flag">Critic / Security</td>
+        </tr>
+        <tr>
+          <td class="fw">Google (Gemini)</td>
+          <td><span class="pill p-yes">ChatSession (client)</span></td>
+          <td><span class="pill p-oath">ADC / gcloud</span><span class="pill p-key">API key</span></td>
+          <td><span class="pill p-no">No (own SDK)</span></td>
+          <td><span class="tier t-frontier">Frontier</span></td>
+          <td class="flag">★★★★★</td>
+          <td class="flag">Tester / long-context</td>
+        </tr>
+        <tr>
+          <td class="fw">DeepSeek</td>
+          <td><span class="pill p-no">Stateless (messages[])</span></td>
+          <td><span class="pill p-key">API key only</span></td>
+          <td><span class="pill p-yes">Yes</span></td>
+          <td><span class="tier t-high">High</span></td>
+          <td class="flag">★★★★☆</td>
+          <td class="flag">Coder / bulk turns (low cost)</td>
+        </tr>
+        <tr>
+          <td class="fw">Groq</td>
+          <td><span class="pill p-no">Stateless (messages[])</span></td>
+          <td><span class="pill p-key">API key only</span></td>
+          <td><span class="pill p-yes">Yes</span></td>
+          <td><span class="tier t-mid">Mid</span></td>
+          <td class="flag">★★★★☆</td>
+          <td class="flag">Fast/cheap reviewer (Llama)</td>
+        </tr>
+
+        <tr class="sect"><td colspan="7">Tier 2 — Low-cost additions (same ApiAgent base)</td></tr>
+        <tr>
+          <td class="fw">xAI (Grok)</td>
+          <td><span class="pill p-no">Stateless (messages[])</span></td>
+          <td><span class="pill p-key">API key only</span></td>
+          <td><span class="pill p-yes">Yes</span></td>
+          <td><span class="tier t-high">High</span></td>
+          <td class="flag">★★★☆☆</td>
+          <td class="flag">Long-context critic (2M tokens)</td>
+        </tr>
+        <tr>
+          <td class="fw">Mistral</td>
+          <td><span class="pill p-no">Stateless (messages[])</span></td>
+          <td><span class="pill p-key">API key only</span></td>
+          <td><span class="pill p-yes">Yes</span></td>
+          <td><span class="tier t-high">High</span></td>
+          <td class="flag">★★★☆☆</td>
+          <td class="flag">EU-based critic / code review</td>
+        </tr>
+        <tr>
+          <td class="fw">Together AI</td>
+          <td><span class="pill p-no">Stateless (messages[])</span></td>
+          <td><span class="pill p-key">API key only</span></td>
+          <td><span class="pill p-yes">Yes</span></td>
+          <td><span class="tier t-mid">Mid</span></td>
+          <td class="flag">★★★☆☆</td>
+          <td class="flag">Llama / open-source model host</td>
+        </tr>
+        <tr>
+          <td class="fw">Fireworks AI</td>
+          <td><span class="pill p-no">Stateless (messages[])</span></td>
+          <td><span class="pill p-key">API key only</span></td>
+          <td><span class="pill p-yes">Yes</span></td>
+          <td><span class="tier t-mid">Mid</span></td>
+          <td class="flag">★★★☆☆</td>
+          <td class="flag">Fast open-source inference</td>
+        </tr>
+        <tr>
+          <td class="fw">Cohere</td>
+          <td><span class="pill p-no">Stateless (messages[])</span></td>
+          <td><span class="pill p-key">API key only</span></td>
+          <td><span class="pill p-yes">Partial</span></td>
+          <td><span class="tier t-mid">Mid</span></td>
+          <td class="flag">★★☆☆☆</td>
+          <td class="flag">Enterprise / RAG workloads</td>
+        </tr>
+
+        <tr class="sect"><td colspan="7">Tier 3 — Cloud-native, heavier auth (post-A.3)</td></tr>
+        <tr>
+          <td class="fw">AWS Bedrock</td>
+          <td><span class="pill p-no">Stateless (messages[])</span></td>
+          <td><span class="pill p-oath">AWS creds chain</span></td>
+          <td><span class="pill p-no">No (boto3)</span></td>
+          <td><span class="tier t-frontier">Frontier</span></td>
+          <td class="flag">★★★★★</td>
+          <td class="flag">Claude/Llama behind AWS infra</td>
+        </tr>
+        <tr>
+          <td class="fw">Azure OpenAI</td>
+          <td><span class="pill p-no">Stateless (messages[])</span></td>
+          <td><span class="pill p-key">API key + endpoint</span></td>
+          <td><span class="pill p-yes">Yes (via endpoint)</span></td>
+          <td><span class="tier t-frontier">Frontier</span></td>
+          <td class="flag">★★★★★</td>
+          <td class="flag">GPT behind enterprise Azure</td>
+        </tr>
+        <tr>
+          <td class="fw">Vertex AI (GCP)</td>
+          <td><span class="pill p-no">Stateless (messages[])</span></td>
+          <td><span class="pill p-oath">ADC only</span></td>
+          <td><span class="pill p-no">No (Google SDK)</span></td>
+          <td><span class="tier t-frontier">Frontier</span></td>
+          <td class="flag">★★★★★</td>
+          <td class="flag">Gemini/Claude behind GCP infra</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="note">Session history: only Claude Agent SDK and Codex CLI have true server-side persistence. All others replay messages[] client-side each call.</div>
+  </div>
+
+  <!-- TABLE 2: Pricing -->
+  <div class="card">
+    <div class="card-title">Pricing — input &amp; output cost per million tokens (June 2026)</div>
+    <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Provider</th>
+          <th>Model (kollab default)</th>
+          <th style="text-align:right">Input $/M</th>
+          <th style="text-align:right">Output $/M</th>
+          <th>Cost tier</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="sect"><td colspan="6">Tier 1 — Already in roadmap</td></tr>
+        <tr>
+          <td class="fw">Anthropic · Opus 4.7</td>
+          <td class="flag">Producer / Architect</td>
+          <td class="num">$5.00</td><td class="num">$25.00</td>
+          <td><span class="tier t-high">High</span></td>
+          <td class="flag">Flagship. 1M ctx. Best coding quality.</td>
+        </tr>
+        <tr>
+          <td class="fw">Anthropic · Sonnet 4.6</td>
+          <td class="flag">Critic / default</td>
+          <td class="num">$3.00</td><td class="num">$15.00</td>
+          <td><span class="tier t-high">High</span></td>
+          <td class="flag">Best price/quality balance. 1M ctx.</td>
+        </tr>
+        <tr>
+          <td class="fw">Anthropic · Haiku 4.5</td>
+          <td class="flag">Fast turns</td>
+          <td class="num">$1.00</td><td class="num">$5.00</td>
+          <td><span class="tier t-mid">Mid</span></td>
+          <td class="flag">200K ctx. High-volume / low-latency.</td>
+        </tr>
+        <tr>
+          <td class="fw">OpenAI · GPT-5.4</td>
+          <td class="flag">Critic / Security</td>
+          <td class="num">$2.50</td><td class="num">$15.00</td>
+          <td><span class="tier t-high">High</span></td>
+          <td class="flag">Strong agentic + tool use.</td>
+        </tr>
+        <tr>
+          <td class="fw">OpenAI · GPT-5.4 mini</td>
+          <td class="flag">Fast turns</td>
+          <td class="num">$0.40</td><td class="num">$1.60</td>
+          <td><span class="tier t-mid">Mid</span></td>
+          <td class="flag">Budget GPT-5 class.</td>
+        </tr>
+        <tr>
+          <td class="fw">Google · Gemini 3.1 Pro</td>
+          <td class="flag">Tester / long-ctx</td>
+          <td class="num">$2.00</td><td class="num">$12.00</td>
+          <td><span class="tier t-high">High</span></td>
+          <td class="flag">1M–2M ctx. Competitive to Sonnet.</td>
+        </tr>
+        <tr>
+          <td class="fw">Google · Gemini 3 Flash</td>
+          <td class="flag">Cheap tester</td>
+          <td class="num">$0.50</td><td class="num">$3.00</td>
+          <td><span class="tier t-mid">Mid</span></td>
+          <td class="flag">1M ctx. Best value large-context.</td>
+        </tr>
+        <tr>
+          <td class="fw">DeepSeek · V3.2</td>
+          <td class="flag">Coder / bulk turns</td>
+          <td class="num">$0.14</td><td class="num">$0.28</td>
+          <td><span class="tier t-budget">Budget</span></td>
+          <td class="flag">~24x cheaper than GPT-5.4 output. Data routes via China.</td>
+        </tr>
+        <tr>
+          <td class="fw">Groq · Llama 4 (70B)</td>
+          <td class="flag">Fast reviewer</td>
+          <td class="num">$0.11</td><td class="num">$0.34</td>
+          <td><span class="tier t-budget">Budget</span></td>
+          <td class="flag">Fastest inference (LPU). Open-weight host only.</td>
+        </tr>
+
+        <tr class="sect"><td colspan="6">Tier 2 — Low-cost additions (same ApiAgent base)</td></tr>
+        <tr>
+          <td class="fw">xAI · Grok 4.20</td>
+          <td class="flag">Long-ctx critic</td>
+          <td class="num">$2.00</td><td class="num">$6.00</td>
+          <td><span class="tier t-high">High</span></td>
+          <td class="flag">2M ctx. Real-time X/web search built-in.</td>
+        </tr>
+        <tr>
+          <td class="fw">xAI · Grok 4.1 Fast</td>
+          <td class="flag">Budget Grok</td>
+          <td class="num">$0.20</td><td class="num">$0.50</td>
+          <td><span class="tier t-budget">Budget</span></td>
+          <td class="flag">2M ctx at near-budget price. Strong value.</td>
+        </tr>
+        <tr>
+          <td class="fw">Mistral · Large 2</td>
+          <td class="flag">EU critic</td>
+          <td class="num">$2.00</td><td class="num">$6.00</td>
+          <td><span class="tier t-high">High</span></td>
+          <td class="flag">GDPR-compliant. EU data residency.</td>
+        </tr>
+        <tr>
+          <td class="fw">Mistral · Small 3.2</td>
+          <td class="flag">Budget EU</td>
+          <td class="num">$0.10</td><td class="num">$0.30</td>
+          <td><span class="tier t-budget">Budget</span></td>
+          <td class="flag">Cheapest GDPR-compliant option.</td>
+        </tr>
+        <tr>
+          <td class="fw">Together AI · Llama 3.3 70B</td>
+          <td class="flag">Open-model host</td>
+          <td class="num">$0.88</td><td class="num">$0.88</td>
+          <td><span class="tier t-budget">Budget</span></td>
+          <td class="flag">US-hosted Llama. Symmetric in/out pricing.</td>
+        </tr>
+        <tr>
+          <td class="fw">Fireworks · Llama 3.3 70B</td>
+          <td class="flag">Fast open-model</td>
+          <td class="num">$0.90</td><td class="num">$0.90</td>
+          <td><span class="tier t-budget">Budget</span></td>
+          <td class="flag">Speed-optimised open inference.</td>
+        </tr>
+        <tr>
+          <td class="fw">Cohere · Command R+</td>
+          <td class="flag">RAG / enterprise</td>
+          <td class="num">$2.50</td><td class="num">$10.00</td>
+          <td><span class="tier t-mid">Mid</span></td>
+          <td class="flag">Best with Rerank + Embed. Niche for kollab.</td>
+        </tr>
+
+        <tr class="sect"><td colspan="6">Tier 3 — Cloud-native (post-A.3)</td></tr>
+        <tr>
+          <td class="fw">AWS Bedrock · Claude Sonnet</td>
+          <td class="flag">Claude via AWS</td>
+          <td class="num">~$3.00</td><td class="num">~$15.00</td>
+          <td><span class="tier t-high">High</span></td>
+          <td class="flag">Same model, AWS auth + data sovereignty.</td>
+        </tr>
+        <tr>
+          <td class="fw">Azure OpenAI · GPT-5.4</td>
+          <td class="flag">GPT via Azure</td>
+          <td class="num">~$2.50</td><td class="num">~$15.00</td>
+          <td><span class="tier t-high">High</span></td>
+          <td class="flag">Enterprise SLA + compliance.</td>
+        </tr>
+        <tr>
+          <td class="fw">Vertex AI · Gemini 3.1 Pro</td>
+          <td class="flag">Gemini via GCP</td>
+          <td class="num">~$2.00</td><td class="num">~$12.00</td>
+          <td><span class="tier t-high">High</span></td>
+          <td class="flag">ADC auth. GCP-native data residency.</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="note">All prices USD per million tokens. Sourced from provider pricing pages, verified June 2026. Prices change frequently — treat as directional. Tier 3 prices approximate. DeepSeek cache hits drop input to ~$0.014/M. Anthropic/OpenAI batch discounts ~50% off.</div>
+  </div>
+
+</div>
+</body>
+</html>
