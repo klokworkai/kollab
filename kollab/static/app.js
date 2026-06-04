@@ -23,10 +23,10 @@
   const tip = document.createElement('div');
   tip.style.cssText = [
     'position:fixed', 'z-index:2000', 'pointer-events:none', 'display:none',
-    'background:rgba(24,24,28,0.97)', 'border:1px solid rgba(255,255,255,0.12)',
-    'color:#b0b0c0', 'font-size:11px', 'line-height:1.4',
+    'border-width:1px', 'border-style:solid',
+    'font-size:11px', 'line-height:1.4',
     'padding:3px 8px', 'border-radius:4px', 'white-space:nowrap',
-    'box-shadow:0 2px 8px rgba(0,0,0,0.4)',
+    'box-shadow:0 2px 8px rgba(0,0,0,0.25)',
   ].join(';');
   document.body.appendChild(tip);
 
@@ -34,6 +34,10 @@
   let current = null;
 
   function show(el, e) {
+    const s = window.__kollabThemeStyles || {};
+    tip.style.background  = s.panel  || 'rgba(24,24,28,0.97)';
+    tip.style.color       = s.muted  || '#b0b0c0';
+    tip.style.borderColor = s.border || 'rgba(255,255,255,0.12)';
     tip.textContent = el.dataset.tooltip;
     tip.style.display = 'block';
     move(e);
