@@ -12,6 +12,11 @@ from typing import Literal
 from .agents.base import AgentChunk
 from .agents.claude_agent import ClaudeAgent
 from .agents.codex_agent import CodexAgent
+from .attachments import (
+    AttachmentMeta,
+    build_text_attachment_block,
+    collect_image_paths,
+)
 from .config import Config
 from .prompts import (
     SYSTEM_CRITIC, SYSTEM_PRODUCER,
@@ -42,6 +47,7 @@ class SessionOverrides:
     max_tokens_per_session: int | None = None
     claude_model: str | None = None
     codex_model: str | None = None
+    attachments: list[AttachmentMeta] = field(default_factory=list)
 
 
 @dataclass
@@ -62,9 +68,10 @@ class Turn:
 class Session:
     def __init__(self, cfg: Config, broadcast: BroadcastFn,
                  overrides: SessionOverrides | None = None,
-                 session_number: int = 0) -> None:
+                 session_number: int = 0,
+                 session_id: str | None = None) -> None:
         ov = overrides or SessionOverrides()
-        self.id: str = _make_session_id()
+        self.id: str = session_id or _make_session_id()
         self.session_number: int = session_number
         self.goal: str = ""
         self.round: int = 0
@@ -104,6 +111,11 @@ class Session:
         # Keyed by 'claude' or 'codex'. Directives sent to 'both' are written
         # into both queues. Multiple directives accumulate instead of overwriting.
         self._pending_directives: dict[str, list[str]] = {"claude": [], "codex": []}
+        self._attachments: list[AttachmentMeta] = list(ov.attachments)
+        # Track whether each actor has received attachments on their first turn.
+        # An interrupted turn does NOT count — the turn count stays at 1 so
+        # delivery is retried on the re-run.
+        self._attachments_delivered: dict[str, bool] = {"claude": False, "codex": False}
         self._halt_requested: bool = False
         self._done_reason: str = ""
         self._halt_timeout_secs: int = cfg.halt_timeout_secs
@@ -131,6 +143,7 @@ class Session:
                        "codex_model": self.codex_model,
                        "round_limit": self._round_limit,
                        "started_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                       "attachments": [a.to_dict() for a in self._attachments],
                    }})
         self._broadcast({"type": "state", "state": "fanning_out", "round": 0,
                          "session_number": self.session_number,
@@ -212,6 +225,14 @@ class Session:
         if self._max_tokens_per_turn:
             prompt += f"\n[Keep this response under {self._max_tokens_per_turn} tokens.]"
 
+        # ------ attachment delivery (first turn per actor only) ------
+        delivery_images: list = []
+        if self._attachments and not self._attachments_delivered[actor]:
+            text_block = build_text_attachment_block(self._attachments)
+            if text_block:
+                prompt = text_block + "\n\n" + prompt
+            delivery_images = collect_image_paths(self._attachments)
+
         # ------ stream the response ------
         self._halt_requested = False
         interrupted_mid_stream = False
@@ -219,7 +240,7 @@ class Session:
         turn_tokens_in = 0
         turn_tokens_out = 0
         turn_thread_id = ""
-        async for chunk in agent.send(prompt):
+        async for chunk in agent.send(prompt, images=delivery_images or None):
             # On halt: signal the agent to cancel (best effort) and stop
             # accumulating chunks into the turn. We DO continue iterating so
             # the underlying SDK / subprocess pipe drains naturally and is
@@ -290,6 +311,10 @@ class Session:
             return
 
         # ------ normal completion ------
+        # Mark attachments delivered for this actor (only on non-interrupted turns).
+        if self._attachments and not self._attachments_delivered[actor]:
+            self._attachments_delivered[actor] = True
+
         turn.verdict = _parse_verdict(turn.text)
         duration_ms = int(
             (turn.ended_at - turn.started_at).total_seconds() * 1000

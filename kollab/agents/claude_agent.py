@@ -47,10 +47,28 @@ class ClaudeAgent(Agent):
         self._client = ClaudeSDKClient(options=options)
         await self._client.connect()
 
-    async def send(self, message: str) -> AsyncIterator[AgentChunk]:
+    async def send(self, message: str, *, images: list | None = None) -> AsyncIterator[AgentChunk]:
         if self._client is None:
             raise RuntimeError("ClaudeAgent.start() must be called before send()")
-        await self._client.query(message)
+        if images:
+            # Build a mixed content list: image blocks first, then the text prompt.
+            content: list = []
+            for img_path in images:
+                try:
+                    import base64
+                    data = base64.standard_b64encode(img_path.read_bytes()).decode("ascii")
+                    import mimetypes
+                    mime, _ = mimetypes.guess_type(str(img_path))
+                    content.append({
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": mime or "image/png", "data": data},
+                    })
+                except Exception:
+                    pass  # skip unreadable image; non-fatal
+            content.append({"type": "text", "text": message})
+            await self._client.query(content)
+        else:
+            await self._client.query(message)
         _reasoning_streamed = False  # track whether thinking_delta chunks arrived
         async for msg in self._client.receive_response():
             if isinstance(msg, sdk_types.StreamEvent):

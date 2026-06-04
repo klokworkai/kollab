@@ -23,8 +23,11 @@ class Agent(ABC):
         """Initialize session, set system prompt, deliver goal as first user message."""
 
     @abstractmethod
-    async def send(self, message: str) -> AsyncIterator[AgentChunk]:
-        """Send a message, yield chunks of the response as they arrive."""
+    async def send(self, message: str, *, images: list | None = None) -> AsyncIterator[AgentChunk]:
+        """Send a message, yield chunks of the response as they arrive.
+
+        images: optional list of Path objects for image attachments (first turn only).
+        """
 
     @abstractmethod
     async def stop(self) -> None:

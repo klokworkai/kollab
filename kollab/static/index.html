@@ -158,7 +158,7 @@
   <!-- new session modal -->
   <div id="modal-new-session"
     class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50">
-    <div class="bg-panel border border-white/20 rounded-lg p-6 w-full max-w-xl flex flex-col gap-4 overflow-y-auto max-h-[90vh]">
+    <div class="bg-panel border border-white/20 rounded-lg p-6 w-full max-w-2xl flex flex-col gap-4 overflow-y-auto max-h-[90vh]">
       <div class="flex items-baseline justify-between">
         <h2 class="text-base font-bold">New Session</h2>
         <span class="text-xs text-muted opacity-40">Esc to cancel</span>
@@ -211,6 +211,30 @@
                      placeholder-muted focus:outline-none focus:border-white/40" />
           </label>
         </div>
+      </div>
+
+      <!-- attachments section -->
+      <div class="border-t border-white/10 pt-3 flex flex-col gap-2">
+        <p class="text-xs text-muted uppercase tracking-wider">Attachments <span class="normal-case opacity-60">(optional — injected into first turn)</span></p>
+
+        <!-- drop zone -->
+        <div id="attachment-dropzone"
+          class="border border-dashed border-white/20 rounded-lg px-4 py-5 text-center cursor-pointer hover:border-white/40 transition flex flex-col items-center gap-1.5 select-none"
+          role="button" tabindex="0">
+          <span class="text-xs text-muted">Drop files here or <span class="text-user underline">click to browse</span></span>
+          <span class="text-xs opacity-30">.py .md .txt .json .pdf .png .jpg .webp · max 100 KB each</span>
+          <input id="attachment-file-input" type="file" multiple class="hidden"
+            accept=".py,.md,.txt,.json,.toml,.yaml,.yml,.csv,.pdf,.png,.jpg,.jpeg,.webp,text/*,application/json,application/pdf,image/png,image/jpeg,image/webp" />
+        </div>
+
+        <!-- pills -->
+        <div id="attachment-pills" class="flex flex-wrap gap-2 hidden"></div>
+
+        <!-- payload indicator -->
+        <div id="attachment-payload" class="text-xs text-muted hidden"></div>
+
+        <!-- pre-flight warning -->
+        <div id="attachment-warning" class="hidden text-xs rounded px-3 py-2 border border-verdictRevised/40 bg-verdictRevised/10 text-verdictRevised"></div>
       </div>
 
       <div class="flex gap-2 justify-end">

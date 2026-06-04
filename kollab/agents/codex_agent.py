@@ -35,11 +35,11 @@ class CodexAgent(Agent):
         self._system_prompt = system_prompt
         self._started = False
 
-    async def send(self, message: str) -> AsyncIterator[AgentChunk]:
+    async def send(self, message: str, *, images: list | None = None) -> AsyncIterator[AgentChunk]:
         if not self._started:
             message = f"{self._system_prompt}\n\n{message}"
             self._started = True
-        async for chunk in self._run(message, new_session=self._session_id is None):
+        async for chunk in self._run(message, new_session=self._session_id is None, images=images):
             yield chunk
 
     async def stop(self) -> None:
@@ -78,8 +78,8 @@ class CodexAgent(Agent):
             except asyncio.TimeoutError:
                 pass
 
-    async def _run(self, prompt: str, *, new_session: bool) -> AsyncIterator[AgentChunk]:
-        cmd = self._build_cmd(prompt, new_session=new_session)
+    async def _run(self, prompt: str, *, new_session: bool, images: list | None = None) -> AsyncIterator[AgentChunk]:
+        cmd = self._build_cmd(prompt, new_session=new_session, images=images or [])
         import os as _os
         env = None
         if self._mcp_github_enabled and self._mcp_github_token:
@@ -137,7 +137,11 @@ class CodexAgent(Agent):
             metadata={"tokens_in": tokens_in, "tokens_out": tokens_out},
         )
 
-    def _build_cmd(self, prompt: str, *, new_session: bool) -> list[str]:
+    def _build_cmd(self, prompt: str, *, new_session: bool, images: list | None = None) -> list[str]:
+        img_flags: list[str] = []
+        for p in (images or []):
+            img_flags += ["-i", str(p)]
+
         if new_session or self._session_id is None:
             return [
                 self._binary, "exec",
@@ -146,6 +150,7 @@ class CodexAgent(Agent):
                 "--dangerously-bypass-approvals-and-sandbox",
                 "-m", self._model,
                 "-C", self._workdir,
+                *img_flags,
                 prompt,
             ]
         return [
@@ -154,6 +159,7 @@ class CodexAgent(Agent):
             "--json",
             "--skip-git-repo-check",
             "--dangerously-bypass-approvals-and-sandbox",
+            *img_flags,
             prompt,
         ]
 
