@@ -3,15 +3,30 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import shutil
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .attachments import (
+    AttachmentMeta,
+    adopt_staged_attachments,
+    cleanup_stale_staging,
+    create_upload_id,
+    delete_staged_file,
+    delete_staging_dir,
+    get_staged_count,
+    get_staged_total_bytes,
+    guess_mime,
+    is_allowed_mime,
+    stage_file,
+)
 from .config import Config, MODEL_ALIASES, load_config, save_config, validate_config, next_session_number
 from .ace import Session, SessionOverrides
 
@@ -63,6 +78,9 @@ def _apply_logging(cfg: Config) -> None:
 
 # Apply logging on startup from loaded config
 _apply_logging(_cfg)
+
+# Clean up stale staging dirs from previous runs
+cleanup_stale_staging()
 
 
 # ------------------------------------------------------------------ auth
@@ -136,6 +154,7 @@ class StartSessionBody(BaseModel):
     max_tokens_per_session: int | None = None
     claude_model: str | None = None
     codex_model: str | None = None
+    staging_id: str | None = None
 
 
 class UserInputBody(BaseModel):
@@ -170,15 +189,30 @@ async def start_session(body: StartSessionBody) -> dict:
             return None
         return MODEL_ALIASES.get(model, model)
 
+    # Adopt any staged attachments before constructing the session so the
+    # session ID is known and the files land in the right directory.
+    attachments: list[AttachmentMeta] = []
+    if body.staging_id:
+        sessions_dir = Path(_cfg.sessions_dir).expanduser()
+        session_id_override = f"sess_{uuid.uuid4().hex[:8]}"
+        try:
+            attachments = adopt_staged_attachments(body.staging_id, session_id_override, sessions_dir)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid staging_id: {exc}")
+    else:
+        session_id_override = None
+
     overrides = SessionOverrides(
         round_limit=body.round_limit,
         max_tokens_per_turn=body.max_tokens_per_turn,
         max_tokens_per_session=body.max_tokens_per_session,
         claude_model=_resolve(body.claude_model),
         codex_model=_resolve(body.codex_model),
+        attachments=attachments,
     )
     session = Session(_cfg, _broadcast, overrides=overrides,
-                      session_number=next_session_number(_cfg))
+                      session_number=next_session_number(_cfg),
+                      session_id=session_id_override)
     _sessions[session.id] = session
     _session_tasks[session.id] = asyncio.create_task(_run_session(session.id, body.goal))
     return {
@@ -213,6 +247,67 @@ async def session_input(body: UserInputBody, session_id: str) -> dict:
     if session is None:
         raise HTTPException(status_code=404, detail="No session with that ID.")
     await session.handle_user_input(body.text, body.target)
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ attachment staging
+
+_UPLOAD_CHUNK = 64 * 1024  # 64 KB read chunks
+
+
+@app.post("/api/attachments/stage", dependencies=[Depends(require_api_key)])
+async def stage_attachment(
+    file: UploadFile = File(...),
+    upload_id: str | None = Form(default=None),
+) -> dict:
+    filename = file.filename or "upload"
+    mime_type = file.content_type or guess_mime(filename)
+
+    if not is_allowed_mime(mime_type):
+        return {"ok": False, "error": f"{filename} is not a supported file type."}
+
+    uid = upload_id or create_upload_id()
+    max_file_bytes  = _cfg.attachment_max_file_kb  * 1024
+    max_total_bytes = _cfg.attachment_max_total_kb * 1024
+
+    # File-count quota — check before reading to avoid buffering a rejected file.
+    if get_staged_count(uid) >= _cfg.attachment_max_files:
+        return {"ok": False, "error": f"Maximum {_cfg.attachment_max_files} files per session."}
+
+    # Per-file size: stream in chunks to avoid buffering the whole file first.
+    chunks: list[bytes] = []
+    received = 0
+    while True:
+        chunk = await file.read(_UPLOAD_CHUNK)
+        if not chunk:
+            break
+        received += len(chunk)
+        if received > max_file_bytes:
+            return {"ok": False, "error": f"File exceeds {_cfg.attachment_max_file_kb} KB limit."}
+        chunks.append(chunk)
+    data = b"".join(chunks)
+
+    # Total-payload quota.
+    if get_staged_total_bytes(uid) + len(data) > max_total_bytes:
+        return {"ok": False, "error": f"Total payload would exceed {_cfg.attachment_max_total_kb} KB limit."}
+
+    meta = stage_file(uid, data, filename, mime_type)
+    return {
+        "ok": meta.error is None,
+        "upload_id": uid,
+        "file": meta.to_dict(),
+    }
+
+
+@app.delete("/api/attachments/stage/{upload_id}", dependencies=[Depends(require_api_key)])
+async def delete_staging(upload_id: str) -> dict:
+    delete_staging_dir(upload_id)
+    return {"ok": True}
+
+
+@app.delete("/api/attachments/stage/{upload_id}/{filename}", dependencies=[Depends(require_api_key)])
+async def delete_staged_attachment(upload_id: str, filename: str) -> dict:
+    delete_staged_file(upload_id, filename)
     return {"ok": True}
 
 
@@ -323,6 +418,14 @@ async def delete_session(session_id: str) -> dict:
     if not path.exists():
         raise HTTPException(status_code=404, detail="Session not found.")
     path.unlink()
+    attachments_dir = sessions_dir / session_id / "attachments"
+    if attachments_dir.exists():
+        shutil.rmtree(attachments_dir, ignore_errors=True)
+    session_dir = sessions_dir / session_id
+    try:
+        session_dir.rmdir()  # only removes if empty
+    except OSError:
+        pass
     return {"ok": True}
 
 

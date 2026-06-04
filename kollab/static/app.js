@@ -1035,6 +1035,230 @@ document.addEventListener('keydown', e => {
   }
 });
 
+// ------------------------------------------------------------------ attachment handling
+
+let _stagingId = null;
+// { filename -> { size, mimeType, state: 'uploading'|'ok'|'error', error } }
+let _attachmentFiles = {};
+let _attachmentCfg = { maxFileKb: 4096, maxFiles: 5, maxTotalKb: 12288 };
+
+const ALLOWED_EXTENSIONS = new Set([
+  'py','md','txt','json','toml','yaml','yml','csv',
+  'html','js',
+  'pdf','png','jpg','jpeg','webp',
+]);
+const IMAGE_EXTENSIONS = new Set(['png','jpg','jpeg','webp']);
+
+function _attachExt(filename) {
+  return (filename.split('.').pop() || '').toLowerCase();
+}
+
+function _attachMime(filename) {
+  const ext = _attachExt(filename);
+  const map = {
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp',
+    pdf: 'application/pdf', json: 'application/json',
+  };
+  return map[ext] || 'text/plain';
+}
+
+function _fmtBytes(n) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function _fmtKbLimit(kb) {
+  return kb >= 1024 ? `${(kb / 1024).toFixed(0)} MB` : `${kb} KB`;
+}
+
+function _totalAttachmentBytes() {
+  return Object.values(_attachmentFiles).reduce((s, f) => s + (f.size || 0), 0);
+}
+
+function _attachHasErrors() {
+  return Object.values(_attachmentFiles).some(f => f.state === 'error' || f.state === 'uploading');
+}
+
+function _resetAttachments() {
+  _stagingId = null;
+  _attachmentFiles = {};
+  _renderAttachmentPills();
+}
+
+function _renderAttachmentPills() {
+  const pillsEl    = document.getElementById('attachment-pills');
+  const payloadEl  = document.getElementById('attachment-payload');
+  const warningEl  = document.getElementById('attachment-warning');
+  const startBtn   = document.getElementById('btn-modal-start');
+  if (!pillsEl) return;
+
+  const files = Object.values(_attachmentFiles);
+
+  if (!files.length) {
+    pillsEl.classList.add('hidden');
+    payloadEl.classList.add('hidden');
+    warningEl.classList.add('hidden');
+    if (startBtn) { startBtn.disabled = false; startBtn.classList.remove('opacity-50'); }
+    return;
+  }
+
+  pillsEl.classList.remove('hidden');
+  pillsEl.innerHTML = '';
+
+  const styles = window.__kollabThemeStyles || {};
+  const borderColor = styles.border || 'rgba(255,255,255,0.20)';
+
+  for (const [filename, f] of Object.entries(_attachmentFiles)) {
+    const pill = document.createElement('div');
+    const isError = f.state === 'error';
+    const isUploading = f.state === 'uploading';
+    pill.className = 'flex items-center gap-1.5 px-2 py-1 rounded text-xs border ' +
+      (isError ? 'border-verdictDisagree/60 bg-verdictDisagree/10 text-verdictDisagree'
+               : 'border-white/20 bg-userPanel text-user');
+    pill.style.borderColor = isError ? '' : borderColor;
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'max-w-[160px] truncate';
+    nameSpan.textContent = isUploading
+      ? `${filename} …`
+      : isError
+        ? `${filename} — ${f.error}`
+        : `${filename} · ${_fmtBytes(f.size)}`;
+    pill.appendChild(nameSpan);
+
+    if (!isUploading) {
+      const removeBtn = document.createElement('button');
+      removeBtn.textContent = '×';
+      removeBtn.className = 'opacity-50 hover:opacity-100 transition text-sm leading-none px-0.5';
+      removeBtn.addEventListener('click', () => _removeAttachment(filename));
+      pill.appendChild(removeBtn);
+    }
+
+    pillsEl.appendChild(pill);
+  }
+
+  // payload indicator
+  const totalBytes = _totalAttachmentBytes();
+  const maxBytes   = _attachmentCfg.maxTotalKb * 1024;
+  const overTotal  = totalBytes > maxBytes;
+  payloadEl.classList.remove('hidden');
+  payloadEl.textContent = `${files.length} file${files.length !== 1 ? 's' : ''} · ${_fmtBytes(totalBytes)} / ${_fmtBytes(maxBytes)}`;
+  payloadEl.style.color = overTotal ? '#cf6679' : '';
+
+  // Start button: disable on any hard error
+  const hasErr = _attachHasErrors() || overTotal;
+  if (startBtn) {
+    startBtn.disabled = hasErr;
+    startBtn.classList.toggle('opacity-50', hasErr);
+  }
+
+  // Pre-flight warning (placeholder for Group A provider registry; no text-only
+  // providers in v1 so this never fires, but the infrastructure is wired)
+  warningEl.classList.add('hidden');
+}
+
+async function _removeAttachment(filename) {
+  const f = _attachmentFiles[filename];
+  delete _attachmentFiles[filename];
+
+  if (_stagingId && f && f.mimeType) {
+    await fetch(`/api/attachments/stage/${encodeURIComponent(_stagingId)}/${encodeURIComponent(filename)}`, {
+      method: 'DELETE',
+    }).catch(() => {});
+  }
+  _renderAttachmentPills();
+}
+
+async function _uploadFile(file) {
+  const filename = file.name;
+  const ext      = _attachExt(filename);
+  const maxBytes = _attachmentCfg.maxFileKb * 1024;
+
+  // Client-side validation: extension
+  if (ext === 'sh') {
+    _attachmentFiles[filename] = { size: file.size, state: 'error', error: 'save as .txt to attach shell scripts' };
+    _renderAttachmentPills();
+    return;
+  }
+  if (!ALLOWED_EXTENSIONS.has(ext)) {
+    _attachmentFiles[filename] = { size: file.size, state: 'error', error: 'unsupported file type' };
+    _renderAttachmentPills();
+    return;
+  }
+
+  // Client-side validation: per-file size
+  if (file.size > maxBytes) {
+    _attachmentFiles[filename] = { size: file.size, state: 'error', error: `exceeds ${_fmtKbLimit(_attachmentCfg.maxFileKb)} limit` };
+    _renderAttachmentPills();
+    return;
+  }
+
+  // Client-side validation: file count
+  const currentCount = Object.keys(_attachmentFiles).length;
+  if (!(filename in _attachmentFiles) && currentCount >= _attachmentCfg.maxFiles) {
+    _attachmentFiles[filename] = { size: file.size, state: 'error', error: `max ${_attachmentCfg.maxFiles} files per session` };
+    _renderAttachmentPills();
+    return;
+  }
+
+  // Mark uploading
+  _attachmentFiles[filename] = { size: file.size, state: 'uploading' };
+  _renderAttachmentPills();
+
+  const form = new FormData();
+  form.append('file', file, filename);
+  if (_stagingId) form.append('upload_id', _stagingId);
+
+  try {
+    const res = await fetch('/api/attachments/stage', { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.ok) {
+      _stagingId = data.upload_id;
+      _attachmentFiles[filename] = { size: file.size, state: 'ok', mimeType: data.file.mime_type };
+    } else {
+      _attachmentFiles[filename] = { size: file.size, state: 'error', error: data.file?.error || data.error || 'upload failed' };
+    }
+  } catch (_) {
+    _attachmentFiles[filename] = { size: file.size, state: 'error', error: 'upload failed' };
+  }
+
+  // Client-side total payload check (re-evaluated after upload resolves)
+  if (_totalAttachmentBytes() > _attachmentCfg.maxTotalKb * 1024) {
+    if (_attachmentFiles[filename]?.state === 'ok') {
+      _attachmentFiles[filename] = { ..._attachmentFiles[filename], state: 'error', error: 'total payload exceeds limit' };
+    }
+  }
+
+  _renderAttachmentPills();
+}
+
+async function _handleFileSelection(fileList) {
+  for (const file of fileList) {
+    await _uploadFile(file);
+  }
+}
+
+async function _clearStagingOnCancel() {
+  if (!_stagingId) return;
+  const sid = _stagingId;
+  _stagingId = null;
+  await fetch(`/api/attachments/stage/${encodeURIComponent(sid)}`, { method: 'DELETE' }).catch(() => {});
+}
+
+(function wireAttachmentUI() {
+  const browseBtn = document.getElementById('attachment-browse-btn');
+  const fileInput = document.getElementById('attachment-file-input');
+  if (!browseBtn || !fileInput) return;
+
+  browseBtn.addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files?.length) _handleFileSelection(fileInput.files);
+    fileInput.value = '';
+  });
+})();
+
 // ------------------------------------------------------------------ new session modal
 
 const MODEL_MATRIX = {
@@ -1082,12 +1306,27 @@ btnNewSession.addEventListener('click', async () => {
   document.getElementById('override-tokens-turn').value = '';
   document.getElementById('override-tokens-session').value = '';
 
+  // Load attachment limits from config
+  _attachmentCfg = {
+    maxFileKb:  cfg.attachment_max_file_kb  ?? 100,
+    maxFiles:   cfg.attachment_max_files    ?? 5,
+    maxTotalKb: cfg.attachment_max_total_kb ?? 500,
+  };
+
+  // Update button tooltip to reflect actual limits
+  const browseBtn = document.getElementById('attachment-browse-btn');
+  if (browseBtn) browseBtn.title = `.py .md .txt .json .toml .yaml .yml .csv .html .js .pdf .png .jpg .jpeg .webp · max ${_fmtKbLimit(_attachmentCfg.maxFileKb)} each · ${_attachmentCfg.maxFiles} files max`;
+
+  _resetAttachments();
+
   document.getElementById('modal-new-session').classList.remove('hidden');
   document.getElementById('goal-input').focus();
 });
 
-document.getElementById('btn-modal-cancel').addEventListener('click', () => {
+document.getElementById('btn-modal-cancel').addEventListener('click', async () => {
   document.getElementById('modal-new-session').classList.add('hidden');
+  await _clearStagingOnCancel();
+  _resetAttachments();
 });
 
 document.getElementById('btn-modal-start').addEventListener('click', async () => {
@@ -1113,6 +1352,8 @@ document.getElementById('btn-modal-start').addEventListener('click', async () =>
 
   const tokensSession = parseInt(document.getElementById('override-tokens-session').value, 10);
   if (!isNaN(tokensSession) && tokensSession > 0) body.max_tokens_per_session = tokensSession;
+
+  if (_stagingId) body.staging_id = _stagingId;
 
   document.getElementById('modal-new-session').classList.add('hidden');
   document.getElementById('goal-input').value = '';
@@ -1206,12 +1447,17 @@ document.getElementById('btn-modal-start').addEventListener('click', async () =>
     const data = await res.json();
     tab.sessionId = data.session_id;
     // session_number is set from the fanning_out WS broadcast
+    _resetAttachments();
   } else if (res.status === 409) {
     removeWaitingMsg();
     closeTab(tab.id);
+    await _clearStagingOnCancel();
+    _resetAttachments();
   } else {
     removeWaitingMsg();
     onError({ message: `Failed to start session (${res.status})` });
+    await _clearStagingOnCancel();
+    _resetAttachments();
   }
 });
 

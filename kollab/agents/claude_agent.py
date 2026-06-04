@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import logging
+import mimetypes
 from typing import AsyncIterator
 
 from claude_agent_sdk import types as sdk_types
@@ -7,6 +10,8 @@ from claude_agent_sdk.client import ClaudeSDKClient
 
 from ..config import mcp_server_path
 from .base import Agent, AgentChunk
+
+log = logging.getLogger("kollab.claude_agent")
 
 
 class ClaudeAgent(Agent):
@@ -47,10 +52,30 @@ class ClaudeAgent(Agent):
         self._client = ClaudeSDKClient(options=options)
         await self._client.connect()
 
-    async def send(self, message: str) -> AsyncIterator[AgentChunk]:
+    async def send(self, message: str, *, images: list | None = None) -> AsyncIterator[AgentChunk]:
         if self._client is None:
             raise RuntimeError("ClaudeAgent.start() must be called before send()")
-        await self._client.query(message)
+        if images:
+            # Build a mixed content list: image blocks first, then the text prompt.
+            content: list = []
+            for img_path in images:
+                try:
+                    data = base64.standard_b64encode(img_path.read_bytes()).decode("ascii")
+                    mime, _ = mimetypes.guess_type(str(img_path))
+                    content.append({
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": mime or "image/png", "data": data},
+                    })
+                except Exception as exc:
+                    log.warning("Failed to encode image attachment %s: %s", img_path.name, exc)
+                    content.append({
+                        "type": "text",
+                        "text": f"[Attachment error: {img_path.name} could not be loaded — {exc}]",
+                    })
+            content.append({"type": "text", "text": message})
+            await self._client.query(content)
+        else:
+            await self._client.query(message)
         _reasoning_streamed = False  # track whether thinking_delta chunks arrived
         async for msg in self._client.receive_response():
             if isinstance(msg, sdk_types.StreamEvent):
