@@ -84,9 +84,9 @@ class Config(BaseModel):
     webhooks: WebhookConfig = WebhookConfig()
 
     # File attachments
-    attachment_max_file_kb: int = 100
+    attachment_max_file_kb: int = 4096
     attachment_max_files: int = 5
-    attachment_max_total_kb: int = 500
+    attachment_max_total_kb: int = 12288
 
 
 def _expand(value: str) -> str:

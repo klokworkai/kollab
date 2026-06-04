@@ -1040,7 +1040,7 @@ document.addEventListener('keydown', e => {
 let _stagingId = null;
 // { filename -> { size, mimeType, state: 'uploading'|'ok'|'error', error } }
 let _attachmentFiles = {};
-let _attachmentCfg = { maxFileKb: 100, maxFiles: 5, maxTotalKb: 500 };
+let _attachmentCfg = { maxFileKb: 4096, maxFiles: 5, maxTotalKb: 12288 };
 
 const ALLOWED_EXTENSIONS = new Set([
   'py','md','txt','json','toml','yaml','yml','csv',
@@ -1063,7 +1063,12 @@ function _attachMime(filename) {
 
 function _fmtBytes(n) {
   if (n < 1024) return `${n} B`;
-  return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function _fmtKbLimit(kb) {
+  return kb >= 1024 ? `${(kb / 1024).toFixed(0)} MB` : `${kb} KB`;
 }
 
 function _totalAttachmentBytes() {
@@ -1178,7 +1183,7 @@ async function _uploadFile(file) {
 
   // Client-side validation: per-file size
   if (file.size > maxBytes) {
-    _attachmentFiles[filename] = { size: file.size, state: 'error', error: `exceeds ${_attachmentCfg.maxFileKb} KB limit` };
+    _attachmentFiles[filename] = { size: file.size, state: 'error', error: `exceeds ${_fmtKbLimit(_attachmentCfg.maxFileKb)} limit` };
     _renderAttachmentPills();
     return;
   }
@@ -1236,29 +1241,15 @@ async function _clearStagingOnCancel() {
 }
 
 (function wireAttachmentUI() {
-  const dropzone  = document.getElementById('attachment-dropzone');
+  const browseBtn = document.getElementById('attachment-browse-btn');
   const fileInput = document.getElementById('attachment-file-input');
-  if (!dropzone || !fileInput) return;
+  if (!browseBtn || !fileInput) return;
 
-  dropzone.addEventListener('click', () => fileInput.click());
-  dropzone.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') fileInput.click(); });
+  browseBtn.addEventListener('click', () => fileInput.click());
 
   fileInput.addEventListener('change', () => {
     if (fileInput.files?.length) _handleFileSelection(fileInput.files);
     fileInput.value = '';
-  });
-
-  dropzone.addEventListener('dragover', e => {
-    e.preventDefault();
-    dropzone.classList.add('border-white/60');
-  });
-  dropzone.addEventListener('dragleave', () => {
-    dropzone.classList.remove('border-white/60');
-  });
-  dropzone.addEventListener('drop', e => {
-    e.preventDefault();
-    dropzone.classList.remove('border-white/60');
-    if (e.dataTransfer?.files?.length) _handleFileSelection(e.dataTransfer.files);
   });
 })();
 
@@ -1316,9 +1307,9 @@ btnNewSession.addEventListener('click', async () => {
     maxTotalKb: cfg.attachment_max_total_kb ?? 500,
   };
 
-  // Update drop zone hint to reflect actual limits
-  const dzHint = document.querySelector('#attachment-dropzone span:last-of-type');
-  if (dzHint) dzHint.textContent = `.py .md .txt .json .pdf .png .jpg .webp · max ${_attachmentCfg.maxFileKb} KB each`;
+  // Update button tooltip to reflect actual limits
+  const browseBtn = document.getElementById('attachment-browse-btn');
+  if (browseBtn) browseBtn.title = `.py .md .txt .json .toml .yaml .yml .csv .pdf .png .jpg .webp · max ${_fmtKbLimit(_attachmentCfg.maxFileKb)} each · ${_attachmentCfg.maxFiles} files max`;
 
   _resetAttachments();
 
