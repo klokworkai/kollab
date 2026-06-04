@@ -227,7 +227,7 @@ class Session:
 
         # ------ attachment delivery (first turn per actor only) ------
         delivery_images: list = []
-        if self._attachments and not self._attachments_delivered[actor]:
+        if self._attachments and not self._attachments_delivered.get(actor, False):
             text_block = build_text_attachment_block(self._attachments)
             if text_block:
                 prompt = text_block + "\n\n" + prompt
@@ -312,7 +312,7 @@ class Session:
 
         # ------ normal completion ------
         # Mark attachments delivered for this actor (only on non-interrupted turns).
-        if self._attachments and not self._attachments_delivered[actor]:
+        if self._attachments and not self._attachments_delivered.get(actor, False):
             self._attachments_delivered[actor] = True
 
         turn.verdict = _parse_verdict(turn.text)
