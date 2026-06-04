@@ -332,6 +332,7 @@ class Session:
                                 "verdict": turn.verdict, "duration_ms": duration_ms,
                                 "summary": turn.summary, "thread_id": turn_thread_id}})
         self._broadcast({"type": "turn_end", "turn_id": turn_id,
+                         "actor": actor,
                          "verdict": turn.verdict, "duration_ms": duration_ms,
                          "text": turn.text, "summary": turn.summary,
                          "session_id": self.id})

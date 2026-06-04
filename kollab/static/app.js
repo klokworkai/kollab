@@ -741,6 +741,12 @@ function onTurnEnd(msg) {
     summaryEl.classList.remove('hidden');
   }
   enableCollapseChevron(msg.turn_id, card || undefined);
+  if (msg.summary) {
+    const _tab = getTabForEvent(msg) || activeTab();
+    if (_tab) (_tab._turnSummaries = _tab._turnSummaries || []).push(
+      { turn_id: msg.turn_id, actor: msg.actor, summary: msg.summary }
+    );
+  }
   isStreaming = false;
   currentTurnId = null;
   if (isActiveTab) scrollIfSticky();
@@ -800,6 +806,55 @@ function onState(msg) {
     else if (sessionRunning) tab.state = 'active';
     if (tab.id === activeTabId) updateInputStrip(tab);
   }
+}
+
+function buildSummaryCard(entries, endReason) {
+  const validEntries = entries.filter(e => e.summary);
+  if (!validEntries.length && !endReason) return null;
+  const card = document.createElement('div');
+  card.className = 'kollab-goal-card rounded-lg border border-white/10 bg-panel p-3 flex flex-col gap-1';
+  const header = document.createElement('div');
+  header.className = 'text-xs text-muted uppercase tracking-wider mb-1';
+  header.textContent = 'summary';
+  card.appendChild(header);
+  for (const { turn_id, actor, summary } of validEntries) {
+    const row = document.createElement('div');
+    row.className = 'flex items-baseline gap-2 min-w-0';
+    const idEl = document.createElement('span');
+    idEl.className = `text-xs font-mono font-bold shrink-0 ${actor === 'claude' ? 'text-claude' : 'text-codex'}`;
+    idEl.textContent = turn_id;
+    const textEl = document.createElement('span');
+    textEl.className = 'text-xs text-user';
+    textEl.style.cssText = 'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;';
+    textEl.textContent = summary;
+    row.appendChild(idEl);
+    row.appendChild(textEl);
+    card.appendChild(row);
+  }
+  if (endReason) {
+    const divider = document.createElement('div');
+    divider.className = 'border-t border-white/10 mt-1 pt-1';
+    const resLabels = {
+      convergence: '✓ Converged',
+      round_limit:  '⚠ Round limit reached',
+      token_limit:  '⚠ Token budget exhausted',
+      halted:       '⏹ Halted',
+      expired:      '⏳ Expired',
+    };
+    const resColors = {
+      convergence: 'text-verdictAgree',
+      round_limit:  'text-verdictRevised',
+      token_limit:  'text-verdictRevised',
+      halted:       'text-muted',
+      expired:      'text-muted',
+    };
+    const resEl = document.createElement('span');
+    resEl.className = `text-xs ${resColors[endReason] || 'text-muted'}`;
+    resEl.textContent = resLabels[endReason] || endReason;
+    divider.appendChild(resEl);
+    card.appendChild(divider);
+  }
+  return card;
 }
 
 function buildExportButton(sessionId, sessionNumber) {
@@ -900,6 +955,9 @@ function onSessionDone(msg) {
     banner.appendChild(timingSpan);
   }
   appendToActiveTab(banner);
+
+  const summaryCard = buildSummaryCard(tab?._turnSummaries || [], msg.reason);
+  if (summaryCard && tab?._goalCard) tab._goalCard.insertAdjacentElement('afterend', summaryCard);
 
   if (tab) tab.state = 'done';
 
@@ -1383,6 +1441,8 @@ document.getElementById('btn-modal-start').addEventListener('click', async () =>
     </div>
   `;
   appendToActiveTab(goalCard);
+  tab._goalCard = goalCard;
+  tab._turnSummaries = [];
 
   tab.startedAt = new Date();
   const startedSpan = document.getElementById(`goal-started-${tab.id}`);
@@ -1882,6 +1942,7 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
   let _roundLimit  = null;
   let _startedAt   = null;
   let goalCard = null; // hoisted so session_end can update it
+  const _reconTurnSummaries = [];
 
   for (const ev of events) {
     const kind = ev.kind;
@@ -2014,6 +2075,11 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
       // verdict (turn_end only)
       if (!interrupted) applyVerdict(ev.turn_id, ev.payload?.verdict, card);
 
+      // accumulate for summary card
+      if (!interrupted && ev.payload?.summary) {
+        _reconTurnSummaries.push({ turn_id: ev.turn_id, actor: ev.actor, summary: ev.payload.summary });
+      }
+
       // chevron
       enableCollapseChevron(ev.turn_id, card);
 
@@ -2102,6 +2168,9 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
         banner.appendChild(timingSpan);
       }
       appendFn(banner);
+
+      const reconSummaryCard = buildSummaryCard(_reconTurnSummaries, reason);
+      if (reconSummaryCard && goalCard) goalCard.insertAdjacentElement('afterend', reconSummaryCard);
     }
   }
 }
