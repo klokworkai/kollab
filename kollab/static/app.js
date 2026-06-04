@@ -8,6 +8,9 @@
       top: 0;
       z-index: 10;
     }
+    .kollab-summary-card {
+      z-index: 9;
+    }
     [data-theme="dark"]  .kollab-goal-card { background: #17171a; }
     [data-theme="light"] .kollab-goal-card { background: #ffffff; }
   `;
@@ -812,11 +815,23 @@ function buildSummaryCard(entries, endReason) {
   const validEntries = entries.filter(e => e.summary);
   if (!validEntries.length && !endReason) return null;
   const card = document.createElement('div');
-  card.className = 'kollab-goal-card rounded-lg border border-white/10 bg-panel p-3 flex flex-col gap-1';
-  const header = document.createElement('div');
-  header.className = 'text-xs text-muted uppercase tracking-wider mb-1';
-  header.textContent = 'summary';
-  card.appendChild(header);
+  card.className = 'kollab-goal-card kollab-summary-card rounded-lg border border-white/10 bg-panel p-3 flex flex-col gap-1';
+
+  const headerRow = document.createElement('div');
+  headerRow.className = 'flex items-center justify-between mb-1';
+  const headerLabel = document.createElement('span');
+  headerLabel.className = 'text-xs text-muted uppercase tracking-wider';
+  headerLabel.textContent = 'summary';
+  const toggleBtn = document.createElement('button');
+  toggleBtn.className = 'text-xs text-muted opacity-40 hover:opacity-80 transition shrink-0';
+  toggleBtn.textContent = '− collapse';
+  headerRow.appendChild(headerLabel);
+  headerRow.appendChild(toggleBtn);
+  card.appendChild(headerRow);
+
+  const body = document.createElement('div');
+  body.className = 'flex flex-col gap-1';
+
   for (const { turn_id, actor, summary } of validEntries) {
     const row = document.createElement('div');
     row.className = 'flex items-baseline gap-2 min-w-0';
@@ -829,8 +844,9 @@ function buildSummaryCard(entries, endReason) {
     textEl.textContent = summary;
     row.appendChild(idEl);
     row.appendChild(textEl);
-    card.appendChild(row);
+    body.appendChild(row);
   }
+
   if (endReason) {
     const divider = document.createElement('div');
     divider.className = 'border-t border-white/10 mt-1 pt-1';
@@ -852,8 +868,15 @@ function buildSummaryCard(entries, endReason) {
     resEl.className = `text-xs ${resColors[endReason] || 'text-muted'}`;
     resEl.textContent = resLabels[endReason] || endReason;
     divider.appendChild(resEl);
-    card.appendChild(divider);
+    body.appendChild(divider);
   }
+
+  card.appendChild(body);
+  toggleBtn.addEventListener('click', () => {
+    const collapsed = body.style.display === 'none';
+    body.style.display = collapsed ? '' : 'none';
+    toggleBtn.textContent = collapsed ? '+ expand' : '− collapse';
+  });
   return card;
 }
 
@@ -954,10 +977,14 @@ function onSessionDone(msg) {
     timingSpan.textContent = `started ${fmtTime(tab.startedAt)} · ended ${fmtTime(tab.endedAt)} · ${fmtElapsed(tab.endedAt - tab.startedAt)}`;
     banner.appendChild(timingSpan);
   }
-  appendToActiveTab(banner);
-
   const summaryCard = buildSummaryCard(tab?._turnSummaries || [], msg.reason);
-  if (summaryCard && tab?._goalCard) tab._goalCard.insertAdjacentElement('afterend', summaryCard);
+  if (summaryCard && tab && tab._nodes.length > 0) {
+    tab._nodes.splice(1, 0, summaryCard);
+    tab._nodes[0].insertAdjacentElement('afterend', summaryCard);
+    requestAnimationFrame(() => { summaryCard.style.top = (tab._nodes[0]?.offsetHeight || 0) + 'px'; });
+  }
+
+  appendToActiveTab(banner);
 
   if (tab) tab.state = 'done';
 
@@ -1441,7 +1468,6 @@ document.getElementById('btn-modal-start').addEventListener('click', async () =>
     </div>
   `;
   appendToActiveTab(goalCard);
-  tab._goalCard = goalCard;
   tab._turnSummaries = [];
 
   tab.startedAt = new Date();
@@ -1942,6 +1968,7 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
   let _roundLimit  = null;
   let _startedAt   = null;
   let goalCard = null; // hoisted so session_end can update it
+  let summaryPlaceholder = null; // hoisted so session_end can populate it
   const _reconTurnSummaries = [];
 
   for (const ev of events) {
@@ -1981,6 +2008,8 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
         </div>
       `;
       appendFn(goalCard);
+      summaryPlaceholder = document.createElement('div');
+      appendFn(summaryPlaceholder); // holds position 1 (after goal card); populated at session_end
 
       const reconToggleBtn = goalCard.querySelector('#collapse-toggle-recon');
       if (reconToggleBtn) {
@@ -2167,10 +2196,14 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
         timingSpan.textContent = `started ${fmtTime(_startedAt)} · ended ${fmtTime(endedAt)} · ${fmtElapsed(endedAt - _startedAt)}`;
         banner.appendChild(timingSpan);
       }
-      appendFn(banner);
-
       const reconSummaryCard = buildSummaryCard(_reconTurnSummaries, reason);
-      if (reconSummaryCard && goalCard) goalCard.insertAdjacentElement('afterend', reconSummaryCard);
+      if (reconSummaryCard && summaryPlaceholder) {
+        summaryPlaceholder.className = reconSummaryCard.className;
+        while (reconSummaryCard.firstChild) summaryPlaceholder.appendChild(reconSummaryCard.firstChild);
+        requestAnimationFrame(() => { summaryPlaceholder.style.top = (goalCard?.offsetHeight || 0) + 'px'; });
+      }
+
+      appendFn(banner);
     }
   }
 }
@@ -2194,4 +2227,3 @@ function scrollIfSticky() {
 
 connectWS();
 loadHistory();
-restoreOpenTabs();
