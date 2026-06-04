@@ -17,6 +17,58 @@
   document.head.appendChild(s);
 })();
 
+// ------------------------------------------------------------------ custom tooltips
+
+(function initTooltips() {
+  const tip = document.createElement('div');
+  tip.style.cssText = [
+    'position:fixed', 'z-index:2000', 'pointer-events:none', 'display:none',
+    'background:rgba(24,24,28,0.97)', 'border:1px solid rgba(255,255,255,0.12)',
+    'color:#b0b0c0', 'font-size:11px', 'line-height:1.4',
+    'padding:3px 8px', 'border-radius:4px', 'white-space:nowrap',
+    'box-shadow:0 2px 8px rgba(0,0,0,0.4)',
+  ].join(';');
+  document.body.appendChild(tip);
+
+  let timer = null;
+  let current = null;
+
+  function show(el, e) {
+    tip.textContent = el.dataset.tooltip;
+    tip.style.display = 'block';
+    move(e);
+  }
+  function hide() {
+    clearTimeout(timer);
+    tip.style.display = 'none';
+    current = null;
+  }
+  function move(e) {
+    const x = e.clientX + 12;
+    const y = e.clientY + 18;
+    tip.style.left = (x + tip.offsetWidth  > window.innerWidth  ? window.innerWidth  - tip.offsetWidth  - 8 : x) + 'px';
+    tip.style.top  = (y + tip.offsetHeight > window.innerHeight ? e.clientY - tip.offsetHeight - 4     : y) + 'px';
+  }
+
+  document.addEventListener('mouseover', e => {
+    const el = e.target.closest('[data-tooltip]');
+    if (!el || el === current) return;
+    clearTimeout(timer);
+    current = el;
+    timer = setTimeout(() => show(el, e), 150);
+  });
+  document.addEventListener('mouseout', e => {
+    if (!e.target.closest('[data-tooltip]')) return;
+    hide();
+  });
+  document.addEventListener('mousemove', e => {
+    if (tip.style.display === 'none') return;
+    move(e);
+  });
+  document.addEventListener('click', hide);
+  document.addEventListener('scroll', hide, true);
+})();
+
 // ------------------------------------------------------------------ tab state
 
 // Tab: { id, sessionId, goal, state, turnsEl, scrollTop }
@@ -179,8 +231,7 @@ document.getElementById('btn-history-toggle').addEventListener('click', () => {
   if (collapsed) scrollHistoryToActive();
 });
 
-const _historySaved = localStorage.getItem(HISTORY_KEY);
-applyHistoryCollapse(_historySaved === null ? true : _historySaved === 'true');
+applyHistoryCollapse(true);
 
 (function initHistoryResize() {
   const handle = document.getElementById('history-resize-handle');
@@ -818,15 +869,17 @@ function buildSummaryCard(entries, endReason) {
   card.className = 'kollab-goal-card kollab-summary-card rounded-lg border border-white/10 bg-panel p-3 flex flex-col gap-1';
 
   const headerRow = document.createElement('div');
-  headerRow.className = 'flex items-center justify-between mb-1';
+  headerRow.className = 'flex items-center gap-2 text-xs min-w-0 mb-1';
+  const toggleBtn = document.createElement('button');
+  toggleBtn.className = 'text-muted text-base opacity-60 hover:opacity-100 cursor-pointer transition-transform select-none shrink-0';
+  toggleBtn.style.transition = 'transform 0.2s';
+  toggleBtn.innerHTML = '&#8250;';
+  toggleBtn.setAttribute('data-tooltip', 'Collapse');
   const headerLabel = document.createElement('span');
   headerLabel.className = 'text-xs text-muted uppercase tracking-wider';
   headerLabel.textContent = 'summary';
-  const toggleBtn = document.createElement('button');
-  toggleBtn.className = 'text-xs text-muted opacity-40 hover:opacity-80 transition shrink-0';
-  toggleBtn.textContent = '− collapse';
-  headerRow.appendChild(headerLabel);
   headerRow.appendChild(toggleBtn);
+  headerRow.appendChild(headerLabel);
   card.appendChild(headerRow);
 
   const body = document.createElement('div');
@@ -875,7 +928,8 @@ function buildSummaryCard(entries, endReason) {
   toggleBtn.addEventListener('click', () => {
     const collapsed = body.style.display === 'none';
     body.style.display = collapsed ? '' : 'none';
-    toggleBtn.textContent = collapsed ? '+ expand' : '− collapse';
+    toggleBtn.style.transform = collapsed ? '' : 'rotate(90deg)';
+    toggleBtn.setAttribute('data-tooltip', collapsed ? 'Collapse' : 'Expand');
   });
   return card;
 }
