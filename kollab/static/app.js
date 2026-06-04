@@ -1044,6 +1044,7 @@ let _attachmentCfg = { maxFileKb: 4096, maxFiles: 5, maxTotalKb: 12288 };
 
 const ALLOWED_EXTENSIONS = new Set([
   'py','md','txt','json','toml','yaml','yml','csv',
+  'html','js',
   'pdf','png','jpg','jpeg','webp',
 ]);
 const IMAGE_EXTENSIONS = new Set(['png','jpg','jpeg','webp']);
@@ -1076,7 +1077,7 @@ function _totalAttachmentBytes() {
 }
 
 function _attachHasErrors() {
-  return Object.values(_attachmentFiles).some(f => f.state === 'error');
+  return Object.values(_attachmentFiles).some(f => f.state === 'error' || f.state === 'uploading');
 }
 
 function _resetAttachments() {
@@ -1161,7 +1162,7 @@ async function _removeAttachment(filename) {
   const f = _attachmentFiles[filename];
   delete _attachmentFiles[filename];
 
-  if (_stagingId && f && f.state === 'ok') {
+  if (_stagingId && f && f.mimeType) {
     await fetch(`/api/attachments/stage/${encodeURIComponent(_stagingId)}/${encodeURIComponent(filename)}`, {
       method: 'DELETE',
     }).catch(() => {});
@@ -1175,6 +1176,11 @@ async function _uploadFile(file) {
   const maxBytes = _attachmentCfg.maxFileKb * 1024;
 
   // Client-side validation: extension
+  if (ext === 'sh') {
+    _attachmentFiles[filename] = { size: file.size, state: 'error', error: 'save as .txt to attach shell scripts' };
+    _renderAttachmentPills();
+    return;
+  }
   if (!ALLOWED_EXTENSIONS.has(ext)) {
     _attachmentFiles[filename] = { size: file.size, state: 'error', error: 'unsupported file type' };
     _renderAttachmentPills();
@@ -1309,7 +1315,7 @@ btnNewSession.addEventListener('click', async () => {
 
   // Update button tooltip to reflect actual limits
   const browseBtn = document.getElementById('attachment-browse-btn');
-  if (browseBtn) browseBtn.title = `.py .md .txt .json .toml .yaml .yml .csv .pdf .png .jpg .webp · max ${_fmtKbLimit(_attachmentCfg.maxFileKb)} each · ${_attachmentCfg.maxFiles} files max`;
+  if (browseBtn) browseBtn.title = `.py .md .txt .json .toml .yaml .yml .csv .html .js .pdf .png .jpg .jpeg .webp · max ${_fmtKbLimit(_attachmentCfg.maxFileKb)} each · ${_attachmentCfg.maxFiles} files max`;
 
   _resetAttachments();
 

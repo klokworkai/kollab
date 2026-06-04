@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -190,10 +191,11 @@ async def start_session(body: StartSessionBody) -> dict:
     attachments: list[AttachmentMeta] = []
     if body.staging_id:
         sessions_dir = Path(_cfg.sessions_dir).expanduser()
-        # We need a session ID first — generate it here rather than inside Session().
-        import uuid as _uuid
-        session_id_override = f"sess_{_uuid.uuid4().hex[:8]}"
-        attachments = adopt_staged_attachments(body.staging_id, session_id_override, sessions_dir)
+        session_id_override = f"sess_{uuid.uuid4().hex[:8]}"
+        try:
+            attachments = adopt_staged_attachments(body.staging_id, session_id_override, sessions_dir)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid staging_id: {exc}")
     else:
         session_id_override = None
 

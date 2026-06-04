@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import html
 import logging
 import mimetypes
 import shutil
@@ -67,6 +68,8 @@ def guess_mime(filename: str) -> str:
 # ------------------------------------------------------------------ staging
 
 def staging_dir(upload_id: str) -> Path:
+    if not upload_id.replace("-", "").isalnum() or ".." in upload_id or "/" in upload_id:
+        raise ValueError(f"Invalid upload_id: {upload_id!r}")
     return STAGING_ROOT / upload_id
 
 
@@ -165,11 +168,15 @@ def adopt_staged_attachments(staging_id: str, session_id: str, sessions_dir: Pat
         txt_path = sdir / (raw_path.name + ".txt")
         dest_raw = dest / raw_path.name
         dest_txt = dest / (raw_path.name + ".txt")
-        shutil.move(str(raw_path), str(dest_raw))
-        if txt_path.exists():
-            shutil.move(str(txt_path), str(dest_txt))
-        else:
-            dest_txt.write_text("", encoding="utf-8")
+        try:
+            shutil.move(str(raw_path), str(dest_raw))
+            if txt_path.exists():
+                shutil.move(str(txt_path), str(dest_txt))
+            else:
+                dest_txt.write_text("", encoding="utf-8")
+        except Exception as exc:
+            log.warning("Failed to move attachment %s: %s", raw_path.name, exc)
+            continue
 
         mime_type = guess_mime(raw_path.name)
         size_bytes = dest_raw.stat().st_size
@@ -223,7 +230,7 @@ def build_text_attachment_block(attachments: list[AttachmentMeta]) -> str:
             continue
         content = att.text_path.read_text(encoding="utf-8").strip()
         if content:
-            parts.append(f'<attachment name="{att.filename}">\n{content}\n</attachment>')
+            parts.append(f'<attachment name="{html.escape(att.filename, quote=True)}">\n{content}\n</attachment>')
     return "\n\n".join(parts)
 
 
