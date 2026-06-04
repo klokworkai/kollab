@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import shutil
 import sys
 import uuid
 from pathlib import Path
@@ -20,6 +21,8 @@ from .attachments import (
     create_upload_id,
     delete_staged_file,
     delete_staging_dir,
+    get_staged_count,
+    get_staged_total_bytes,
     guess_mime,
     is_allowed_mime,
     stage_file,
@@ -249,20 +252,45 @@ async def session_input(body: UserInputBody, session_id: str) -> dict:
 
 # ------------------------------------------------------------------ attachment staging
 
+_UPLOAD_CHUNK = 64 * 1024  # 64 KB read chunks
+
+
 @app.post("/api/attachments/stage", dependencies=[Depends(require_api_key)])
 async def stage_attachment(
     file: UploadFile = File(...),
     upload_id: str | None = Form(default=None),
 ) -> dict:
-    data = await file.read()
     filename = file.filename or "upload"
     mime_type = file.content_type or guess_mime(filename)
 
-    # Server-side type guard (belt-and-suspenders — client also validates)
     if not is_allowed_mime(mime_type):
         return {"ok": False, "error": f"{filename} is not a supported file type."}
 
     uid = upload_id or create_upload_id()
+    max_file_bytes  = _cfg.attachment_max_file_kb  * 1024
+    max_total_bytes = _cfg.attachment_max_total_kb * 1024
+
+    # Per-file size: stream in chunks to avoid buffering the whole file first.
+    chunks: list[bytes] = []
+    received = 0
+    while True:
+        chunk = await file.read(_UPLOAD_CHUNK)
+        if not chunk:
+            break
+        received += len(chunk)
+        if received > max_file_bytes:
+            return {"ok": False, "error": f"File exceeds {_cfg.attachment_max_file_kb} KB limit."}
+        chunks.append(chunk)
+    data = b"".join(chunks)
+
+    # File-count quota.
+    if get_staged_count(uid) >= _cfg.attachment_max_files:
+        return {"ok": False, "error": f"Maximum {_cfg.attachment_max_files} files per session."}
+
+    # Total-payload quota.
+    if get_staged_total_bytes(uid) + len(data) > max_total_bytes:
+        return {"ok": False, "error": f"Total payload would exceed {_cfg.attachment_max_total_kb} KB limit."}
+
     meta = stage_file(uid, data, filename, mime_type)
     return {
         "ok": meta.error is None,
@@ -390,6 +418,14 @@ async def delete_session(session_id: str) -> dict:
     if not path.exists():
         raise HTTPException(status_code=404, detail="Session not found.")
     path.unlink()
+    attachments_dir = sessions_dir / session_id / "attachments"
+    if attachments_dir.exists():
+        shutil.rmtree(attachments_dir, ignore_errors=True)
+    session_dir = sessions_dir / session_id
+    try:
+        session_dir.rmdir()  # only removes if empty
+    except OSError:
+        pass
     return {"ok": True}
 
 

@@ -1233,9 +1233,9 @@ async function _uploadFile(file) {
   _renderAttachmentPills();
 }
 
-function _handleFileSelection(fileList) {
+async function _handleFileSelection(fileList) {
   for (const file of fileList) {
-    _uploadFile(file);
+    await _uploadFile(file);
   }
 }
 
@@ -1357,7 +1357,6 @@ document.getElementById('btn-modal-start').addEventListener('click', async () =>
 
   document.getElementById('modal-new-session').classList.add('hidden');
   document.getElementById('goal-input').value = '';
-  _resetAttachments();
 
   const tab = createTab(goal, null, 'active');
   switchTab(tab.id);
@@ -1448,12 +1447,17 @@ document.getElementById('btn-modal-start').addEventListener('click', async () =>
     const data = await res.json();
     tab.sessionId = data.session_id;
     // session_number is set from the fanning_out WS broadcast
+    _resetAttachments();
   } else if (res.status === 409) {
     removeWaitingMsg();
     closeTab(tab.id);
+    await _clearStagingOnCancel();
+    _resetAttachments();
   } else {
     removeWaitingMsg();
     onError({ message: `Failed to start session (${res.status})` });
+    await _clearStagingOnCancel();
+    _resetAttachments();
   }
 });
 

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import logging
+import mimetypes
 from typing import AsyncIterator
 
 from claude_agent_sdk import types as sdk_types
@@ -7,6 +10,8 @@ from claude_agent_sdk.client import ClaudeSDKClient
 
 from ..config import mcp_server_path
 from .base import Agent, AgentChunk
+
+log = logging.getLogger("kollab.claude_agent")
 
 
 class ClaudeAgent(Agent):
@@ -55,16 +60,18 @@ class ClaudeAgent(Agent):
             content: list = []
             for img_path in images:
                 try:
-                    import base64
                     data = base64.standard_b64encode(img_path.read_bytes()).decode("ascii")
-                    import mimetypes
                     mime, _ = mimetypes.guess_type(str(img_path))
                     content.append({
                         "type": "image",
                         "source": {"type": "base64", "media_type": mime or "image/png", "data": data},
                     })
-                except Exception:
-                    pass  # skip unreadable image; non-fatal
+                except Exception as exc:
+                    log.warning("Failed to encode image attachment %s: %s", img_path.name, exc)
+                    content.append({
+                        "type": "text",
+                        "text": f"[Attachment error: {img_path.name} could not be loaded — {exc}]",
+                    })
             content.append({"type": "text", "text": message})
             await self._client.query(content)
         else:

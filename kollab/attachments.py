@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import html
+import json
 import logging
 import mimetypes
 import shutil
@@ -73,6 +74,12 @@ def staging_dir(upload_id: str) -> Path:
     return STAGING_ROOT / upload_id
 
 
+def _validate_filename(filename: str) -> None:
+    """Raise ValueError if filename contains path separators or traversal components."""
+    if not filename or Path(filename).name != filename or "/" in filename or "\\" in filename or ".." in filename:
+        raise ValueError(f"Invalid filename: {filename!r}")
+
+
 def create_upload_id() -> str:
     return uuid.uuid4().hex[:16]
 
@@ -84,6 +91,7 @@ def stage_file(
     mime_type: str,
 ) -> AttachmentMeta:
     """Store raw bytes, derive text representation. Returns AttachmentMeta."""
+    _validate_filename(filename)
     sdir = staging_dir(upload_id)
     sdir.mkdir(parents=True, exist_ok=True)
 
@@ -122,7 +130,7 @@ def stage_file(
             text_ok = False
             error = str(exc)
 
-    return AttachmentMeta(
+    meta = AttachmentMeta(
         upload_id=upload_id,
         filename=filename,
         mime_type=mime_type,
@@ -132,14 +140,24 @@ def stage_file(
         text_ok=text_ok,
         error=error,
     )
+    # Write sidecar so adopt_staged_attachments can restore exact upload-time metadata.
+    sidecar = sdir / (filename + ".meta.json")
+    sidecar.write_text(json.dumps({
+        "mime_type": mime_type,
+        "text_ok": text_ok,
+        "error": error,
+    }), encoding="utf-8")
+    return meta
 
 
 def delete_staged_file(upload_id: str, filename: str) -> bool:
+    _validate_filename(filename)
     sdir = staging_dir(upload_id)
-    raw = sdir / filename
-    txt = sdir / (filename + ".txt")
+    raw   = sdir / filename
+    txt   = sdir / (filename + ".txt")
+    meta  = sdir / (filename + ".meta.json")
     deleted = False
-    for p in (raw, txt):
+    for p in (raw, txt, meta):
         if p.exists():
             p.unlink()
             deleted = True
@@ -163,9 +181,12 @@ def adopt_staged_attachments(staging_id: str, session_id: str, sessions_dir: Pat
 
     metas: list[AttachmentMeta] = []
     for raw_path in sorted(sdir.iterdir()):
-        if raw_path.name.startswith(".") or raw_path.suffix == ".txt":
+        if (raw_path.name.startswith(".")
+                or raw_path.suffix == ".txt"
+                or raw_path.name.endswith(".meta.json")):
             continue
-        txt_path = sdir / (raw_path.name + ".txt")
+        txt_path  = sdir / (raw_path.name + ".txt")
+        meta_path = sdir / (raw_path.name + ".meta.json")
         dest_raw = dest / raw_path.name
         dest_txt = dest / (raw_path.name + ".txt")
         try:
@@ -178,11 +199,20 @@ def adopt_staged_attachments(staging_id: str, session_id: str, sessions_dir: Pat
             log.warning("Failed to move attachment %s: %s", raw_path.name, exc)
             continue
 
+        # Restore upload-time metadata from sidecar; fall back to guessing.
         mime_type = guess_mime(raw_path.name)
-        size_bytes = dest_raw.stat().st_size
-        text_content = dest_txt.read_text(encoding="utf-8") if dest_txt.exists() else ""
-        text_ok = bool(text_content) or mime_type in _IMAGE_MIME
+        text_ok = True
+        error: str | None = None
+        if meta_path.exists():
+            try:
+                sidecar = json.loads(meta_path.read_text(encoding="utf-8"))
+                mime_type = sidecar.get("mime_type", mime_type)
+                text_ok   = sidecar.get("text_ok", text_ok)
+                error     = sidecar.get("error")
+            except Exception as exc:
+                log.warning("Could not read sidecar for %s: %s", raw_path.name, exc)
 
+        size_bytes = dest_raw.stat().st_size
         metas.append(AttachmentMeta(
             upload_id=staging_id,
             filename=raw_path.name,
@@ -191,6 +221,7 @@ def adopt_staged_attachments(staging_id: str, session_id: str, sessions_dir: Pat
             text_path=dest_txt,
             size_bytes=size_bytes,
             text_ok=text_ok,
+            error=error,
         ))
 
     shutil.rmtree(sdir, ignore_errors=True)
@@ -255,3 +286,25 @@ def build_image_content_blocks_claude(attachments: list[AttachmentMeta]) -> list
 def collect_image_paths(attachments: list[AttachmentMeta]) -> list[Path]:
     """Return raw file paths for image attachments (for Codex -i flags)."""
     return [att.raw_path for att in attachments if att.is_image and att.raw_path.exists()]
+
+
+# ------------------------------------------------------------------ staging quota helpers
+
+def _is_raw_file(p: Path) -> bool:
+    return (not p.name.startswith(".")
+            and p.suffix != ".txt"
+            and not p.name.endswith(".meta.json"))
+
+
+def get_staged_count(upload_id: str) -> int:
+    sdir = staging_dir(upload_id)
+    if not sdir.exists():
+        return 0
+    return sum(1 for p in sdir.iterdir() if _is_raw_file(p))
+
+
+def get_staged_total_bytes(upload_id: str) -> int:
+    sdir = staging_dir(upload_id)
+    if not sdir.exists():
+        return 0
+    return sum(p.stat().st_size for p in sdir.iterdir() if _is_raw_file(p))
