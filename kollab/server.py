@@ -270,6 +270,10 @@ async def stage_attachment(
     max_file_bytes  = _cfg.attachment_max_file_kb  * 1024
     max_total_bytes = _cfg.attachment_max_total_kb * 1024
 
+    # File-count quota — check before reading to avoid buffering a rejected file.
+    if get_staged_count(uid) >= _cfg.attachment_max_files:
+        return {"ok": False, "error": f"Maximum {_cfg.attachment_max_files} files per session."}
+
     # Per-file size: stream in chunks to avoid buffering the whole file first.
     chunks: list[bytes] = []
     received = 0
@@ -282,10 +286,6 @@ async def stage_attachment(
             return {"ok": False, "error": f"File exceeds {_cfg.attachment_max_file_kb} KB limit."}
         chunks.append(chunk)
     data = b"".join(chunks)
-
-    # File-count quota.
-    if get_staged_count(uid) >= _cfg.attachment_max_files:
-        return {"ok": False, "error": f"Maximum {_cfg.attachment_max_files} files per session."}
 
     # Total-payload quota.
     if get_staged_total_bytes(uid) + len(data) > max_total_bytes:
