@@ -429,6 +429,37 @@ async def delete_session(session_id: str) -> dict:
     return {"ok": True}
 
 
+@app.get("/api/sessions/{session_id}/summary", dependencies=[Depends(require_api_key)])
+async def get_session_summary(session_id: str) -> dict:
+    sessions_dir = Path(_cfg.sessions_dir)
+    path = sessions_dir / f"{session_id}.jsonl"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Session not found.")
+    try:
+        events = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return _build_arc_summary(events)
+
+
+def _build_arc_summary(events: list[dict]) -> dict:
+    turns: list[dict] = []
+    end_reason: str = ""
+    for ev in events:
+        kind = ev.get("kind")
+        if kind == "turn_end":
+            summary = ev.get("payload", {}).get("summary") or ""
+            if summary:
+                turns.append({
+                    "turn_id": ev.get("turn_id", ""),
+                    "actor": ev.get("actor", ""),
+                    "summary": summary,
+                })
+        elif kind == "session_end":
+            end_reason = ev.get("payload", {}).get("reason", "")
+    return {"turns": turns, "end_reason": end_reason}
+
+
 @app.get("/api/sessions/{session_id}", dependencies=[Depends(require_api_key)])
 async def get_session(session_id: str) -> dict:
     sessions_dir = Path(_cfg.sessions_dir)
@@ -438,7 +469,7 @@ async def get_session(session_id: str) -> dict:
     try:
         events = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"session_id": session_id, "events": events}
 
 
@@ -452,7 +483,7 @@ async def export_session(session_id: str, session_number: int = 0) -> Any:
     try:
         events = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     md = _render_export_md(events, session_id, session_number)
 

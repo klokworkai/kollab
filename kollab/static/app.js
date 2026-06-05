@@ -8,10 +8,75 @@
       top: 0;
       z-index: 10;
     }
+    .kollab-summary-card {
+      z-index: 9;
+    }
     [data-theme="dark"]  .kollab-goal-card { background: #17171a; }
     [data-theme="light"] .kollab-goal-card { background: #ffffff; }
   `;
   document.head.appendChild(s);
+})();
+
+// ------------------------------------------------------------------ custom tooltips
+
+(function initTooltips() {
+  const tip = document.createElement('div');
+  tip.style.cssText = [
+    'position:fixed', 'z-index:2000', 'pointer-events:none', 'display:none',
+    'border-width:1px', 'border-style:solid',
+    'font-size:11px', 'line-height:1.4',
+    'padding:3px 8px', 'border-radius:4px', 'white-space:nowrap',
+    'box-shadow:0 2px 8px rgba(0,0,0,0.25)',
+  ].join(';');
+  document.body.appendChild(tip);
+
+  // Seed aria-label on all static data-tooltip elements at init time.
+  document.querySelectorAll('[data-tooltip]').forEach(el => {
+    if (!el.getAttribute('aria-label')) el.setAttribute('aria-label', el.dataset.tooltip);
+  });
+
+  let timer = null;
+  let current = null;
+
+  function show(el, e) {
+    if (!el.getAttribute('aria-label')) el.setAttribute('aria-label', el.dataset.tooltip);
+    const s = window.__kollabThemeStyles || {};
+    tip.style.background  = s.panel  || 'rgba(24,24,28,0.97)';
+    tip.style.color       = s.muted  || '#b0b0c0';
+    tip.style.borderColor = s.border || 'rgba(255,255,255,0.12)';
+    tip.textContent = el.dataset.tooltip;
+    tip.style.display = 'block';
+    move(e);
+  }
+  function hide() {
+    clearTimeout(timer);
+    tip.style.display = 'none';
+    current = null;
+  }
+  function move(e) {
+    const x = e.clientX + 12;
+    const y = e.clientY + 18;
+    tip.style.left = (x + tip.offsetWidth  > window.innerWidth  ? window.innerWidth  - tip.offsetWidth  - 8 : x) + 'px';
+    tip.style.top  = (y + tip.offsetHeight > window.innerHeight ? e.clientY - tip.offsetHeight - 4     : y) + 'px';
+  }
+
+  document.addEventListener('mouseover', e => {
+    const el = e.target.closest('[data-tooltip]');
+    if (!el || el === current) return;
+    clearTimeout(timer);
+    current = el;
+    timer = setTimeout(() => show(el, e), 150);
+  });
+  document.addEventListener('mouseout', e => {
+    if (!e.target.closest('[data-tooltip]')) return;
+    hide();
+  });
+  document.addEventListener('mousemove', e => {
+    if (tip.style.display === 'none') return;
+    move(e);
+  });
+  document.addEventListener('click', hide);
+  document.addEventListener('scroll', hide, true);
 })();
 
 // ------------------------------------------------------------------ tab state
@@ -176,8 +241,7 @@ document.getElementById('btn-history-toggle').addEventListener('click', () => {
   if (collapsed) scrollHistoryToActive();
 });
 
-const _historySaved = localStorage.getItem(HISTORY_KEY);
-applyHistoryCollapse(_historySaved === null ? true : _historySaved === 'true');
+applyHistoryCollapse(true);
 
 (function initHistoryResize() {
   const handle = document.getElementById('history-resize-handle');
@@ -741,6 +805,12 @@ function onTurnEnd(msg) {
     summaryEl.classList.remove('hidden');
   }
   enableCollapseChevron(msg.turn_id, card || undefined);
+  if (msg.summary) {
+    const _tab = getTabForEvent(msg) || activeTab();
+    if (_tab) (_tab._turnSummaries = _tab._turnSummaries || []).push(
+      { turn_id: msg.turn_id, actor: msg.actor, summary: msg.summary }
+    );
+  }
   isStreaming = false;
   currentTurnId = null;
   if (isActiveTab) scrollIfSticky();
@@ -800,6 +870,78 @@ function onState(msg) {
     else if (sessionRunning) tab.state = 'active';
     if (tab.id === activeTabId) updateInputStrip(tab);
   }
+}
+
+function buildSummaryCard(entries, endReason) {
+  const validEntries = entries.filter(e => e.summary);
+  if (!validEntries.length && !endReason) return null;
+  const card = document.createElement('div');
+  card.className = 'kollab-goal-card kollab-summary-card rounded-lg border border-white/10 bg-panel p-3 flex flex-col gap-1';
+
+  const headerRow = document.createElement('div');
+  headerRow.className = 'flex items-center gap-2 text-xs min-w-0 mb-1';
+  const toggleBtn = document.createElement('button');
+  toggleBtn.className = 'text-muted text-base opacity-60 hover:opacity-100 cursor-pointer transition-transform select-none shrink-0';
+  toggleBtn.style.transition = 'transform 0.2s';
+  toggleBtn.innerHTML = '&#8250;';
+  toggleBtn.setAttribute('data-tooltip', 'Collapse');
+  const headerLabel = document.createElement('span');
+  headerLabel.className = 'text-xs text-muted uppercase tracking-wider';
+  headerLabel.textContent = 'summary';
+  headerRow.appendChild(toggleBtn);
+  headerRow.appendChild(headerLabel);
+  card.appendChild(headerRow);
+
+  const body = document.createElement('div');
+  body.className = 'flex flex-col gap-1';
+
+  for (const { turn_id, actor, summary } of validEntries) {
+    const row = document.createElement('div');
+    row.className = 'flex items-baseline gap-2 min-w-0';
+    const idEl = document.createElement('span');
+    idEl.className = `text-xs font-mono font-bold shrink-0 ${actor === 'claude' ? 'text-claude' : 'text-codex'}`;
+    idEl.textContent = turn_id;
+    const textEl = document.createElement('span');
+    textEl.className = 'text-xs text-user';
+    textEl.style.cssText = 'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;';
+    textEl.textContent = summary;
+    row.appendChild(idEl);
+    row.appendChild(textEl);
+    body.appendChild(row);
+  }
+
+  if (endReason) {
+    const divider = document.createElement('div');
+    divider.className = 'border-t border-white/10 mt-1 pt-1';
+    const resLabels = {
+      convergence: '✓ Converged',
+      round_limit:  '⚠ Round limit reached',
+      token_limit:  '⚠ Token budget exhausted',
+      halted:       '⏹ Halted',
+      expired:      '⏳ Expired',
+    };
+    const resColors = {
+      convergence: 'text-verdictAgree',
+      round_limit:  'text-verdictRevised',
+      token_limit:  'text-verdictRevised',
+      halted:       'text-muted',
+      expired:      'text-muted',
+    };
+    const resEl = document.createElement('span');
+    resEl.className = `text-xs ${resColors[endReason] || 'text-muted'}`;
+    resEl.textContent = resLabels[endReason] || endReason;
+    divider.appendChild(resEl);
+    body.appendChild(divider);
+  }
+
+  card.appendChild(body);
+  toggleBtn.addEventListener('click', () => {
+    const collapsed = body.style.display === 'none';
+    body.style.display = collapsed ? '' : 'none';
+    toggleBtn.style.transform = collapsed ? '' : 'rotate(90deg)';
+    toggleBtn.setAttribute('data-tooltip', collapsed ? 'Collapse' : 'Expand');
+  });
+  return card;
 }
 
 function buildExportButton(sessionId, sessionNumber) {
@@ -899,6 +1041,13 @@ function onSessionDone(msg) {
     timingSpan.textContent = `started ${fmtTime(tab.startedAt)} · ended ${fmtTime(tab.endedAt)} · ${fmtElapsed(tab.endedAt - tab.startedAt)}`;
     banner.appendChild(timingSpan);
   }
+  const summaryCard = buildSummaryCard(tab?._turnSummaries || [], msg.reason);
+  if (summaryCard && tab && tab._nodes.length > 0) {
+    tab._nodes.splice(1, 0, summaryCard);
+    tab._nodes[0].insertAdjacentElement('afterend', summaryCard);
+    requestAnimationFrame(() => { summaryCard.style.top = (tab._nodes[0]?.offsetHeight || 0) + 'px'; });
+  }
+
   appendToActiveTab(banner);
 
   if (tab) tab.state = 'done';
@@ -1383,6 +1532,7 @@ document.getElementById('btn-modal-start').addEventListener('click', async () =>
     </div>
   `;
   appendToActiveTab(goalCard);
+  tab._turnSummaries = [];
 
   tab.startedAt = new Date();
   const startedSpan = document.getElementById(`goal-started-${tab.id}`);
@@ -1882,6 +2032,8 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
   let _roundLimit  = null;
   let _startedAt   = null;
   let goalCard = null; // hoisted so session_end can update it
+  let summaryPlaceholder = null; // hoisted so session_end can populate it
+  const _reconTurnSummaries = [];
 
   for (const ev of events) {
     const kind = ev.kind;
@@ -1920,6 +2072,8 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
         </div>
       `;
       appendFn(goalCard);
+      summaryPlaceholder = document.createElement('div');
+      appendFn(summaryPlaceholder); // holds position 1 (after goal card); populated at session_end
 
       const reconToggleBtn = goalCard.querySelector('#collapse-toggle-recon');
       if (reconToggleBtn) {
@@ -2014,6 +2168,11 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
       // verdict (turn_end only)
       if (!interrupted) applyVerdict(ev.turn_id, ev.payload?.verdict, card);
 
+      // accumulate for summary card
+      if (!interrupted && ev.payload?.summary) {
+        _reconTurnSummaries.push({ turn_id: ev.turn_id, actor: ev.actor, summary: ev.payload.summary });
+      }
+
       // chevron
       enableCollapseChevron(ev.turn_id, card);
 
@@ -2101,6 +2260,13 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
         timingSpan.textContent = `started ${fmtTime(_startedAt)} · ended ${fmtTime(endedAt)} · ${fmtElapsed(endedAt - _startedAt)}`;
         banner.appendChild(timingSpan);
       }
+      const reconSummaryCard = buildSummaryCard(_reconTurnSummaries, reason);
+      if (reconSummaryCard && summaryPlaceholder) {
+        summaryPlaceholder.className = reconSummaryCard.className;
+        while (reconSummaryCard.firstChild) summaryPlaceholder.appendChild(reconSummaryCard.firstChild);
+        requestAnimationFrame(() => { summaryPlaceholder.style.top = (goalCard?.offsetHeight || 0) + 'px'; });
+      }
+
       appendFn(banner);
     }
   }
@@ -2125,4 +2291,3 @@ function scrollIfSticky() {
 
 connectWS();
 loadHistory();
-restoreOpenTabs();

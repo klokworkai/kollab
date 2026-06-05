@@ -36,7 +36,7 @@
     <div class="flex items-center gap-3">
       <button id="btn-history-toggle"
         class="px-2 py-1 rounded border border-white/20 text-muted hover:text-user hover:border-white/40 transition"
-        title="Toggle history">≡</button>
+        data-tooltip="History">≡</button>
       <img id="kollab-logo" style="display:none" alt="koll♠b logo" />
       <div class="flex flex-col leading-tight">
         <span class="font-bold tracking-wide text-base">koll&#9824;b</span>
@@ -46,16 +46,18 @@
     <div class="flex gap-2">
       <button id="btn-about"
         class="px-3 py-1 rounded border border-white/20 text-muted hover:text-user hover:border-white/40 transition"
-        title="About koll♠b">?</button>
+        data-tooltip="About / Help">?</button>
       <button id="btn-theme-toggle"
         class="px-3 py-1 rounded border border-white/20 text-muted hover:text-user hover:border-white/40 transition"
-        title="Toggle theme">☀</button>
+        data-tooltip="Light / Dark">☀</button>
       <button id="btn-configure"
-        class="px-3 py-1 rounded border border-white/20 text-muted hover:text-user hover:border-white/40 transition">
+        class="px-3 py-1 rounded border border-white/20 text-muted hover:text-user hover:border-white/40 transition"
+        data-tooltip="Configure koll♠b">
         ⚙ Configure
       </button>
       <button id="btn-shutdown" disabled
-        class="px-3 py-1 rounded border border-white/20 text-muted hover:text-verdictDisagree hover:border-verdictDisagree/60 transition opacity-40">
+        class="px-3 py-1 rounded border border-white/20 text-muted hover:text-verdictDisagree hover:border-verdictDisagree/60 transition opacity-40"
+        data-tooltip="Quit koll♠b">
         ⏻ Quit
       </button>
     </div>
@@ -72,13 +74,13 @@
         <span>History</span>
         <div class="flex items-center gap-2">
           <div class="flex items-center gap-1" id="history-filters">
-            <button data-filter="convergence" title="Converged"
+            <button data-filter="convergence" data-tooltip="Filter: Converged"
               class="history-filter w-3.5 h-3.5 rounded-sm opacity-30 hover:opacity-80 transition"
               style="background:#4caf50"></button>
-            <button data-filter="round_limit" title="Round limit"
+            <button data-filter="round_limit" data-tooltip="Filter: Round limit"
               class="history-filter w-3.5 h-3.5 rounded-sm opacity-30 hover:opacity-80 transition"
               style="background:#d4a017"></button>
-            <button data-filter="halted" title="Stopped / Expired"
+            <button data-filter="halted" data-tooltip="Filter: Halted / Expired"
               class="history-filter w-3.5 h-3.5 rounded-sm opacity-30 hover:opacity-80 transition"
               style="background:#cf6679"></button>
           </div>
@@ -108,9 +110,10 @@
         </div>
         <button id="btn-close-all-tabs"
           class="shrink-0 px-2 py-2 text-muted text-xs hover:text-verdictDisagree border-l border-white/10 whitespace-nowrap bg-panel"
-          title="Close all inactive tabs">&times;</button>
+          data-tooltip="Close all">&times;</button>
         <button id="btn-new-session"
-          class="shrink-0 px-3 py-2 text-muted text-xs hover:text-user border-l border-white/10 whitespace-nowrap bg-panel flex items-center gap-1.5">
+          class="shrink-0 px-3 py-2 text-muted text-xs hover:text-user border-l border-white/10 whitespace-nowrap bg-panel flex items-center gap-1.5"
+          data-tooltip="Start new session">
           <span id="tab-count" class="text-muted opacity-50 tabular-nums"></span>
           + New Session
         </button>
@@ -219,7 +222,7 @@
           <p class="text-xs text-muted uppercase tracking-wider">Attachments <span class="normal-case opacity-60">(optional — injected into first turn)</span></p>
           <button id="attachment-browse-btn" type="button"
             class="ml-auto px-3 py-1 rounded border border-white/20 text-muted hover:text-user hover:border-white/40 transition text-xs whitespace-nowrap"
-            title=".py .md .txt .json .toml .yaml .yml .csv .html .js .pdf .png .jpg .jpeg .webp · max 4 MB each · 5 files max">
+            data-tooltip=".py .md .txt .json .toml .yaml .yml .csv .html .js .pdf .png .jpg .jpeg .webp · max 4 MB each · 5 files max">
             Attach file(s)
           </button>
           <input id="attachment-file-input" type="file" multiple class="hidden"
