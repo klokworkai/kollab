@@ -438,7 +438,7 @@ async def get_session_summary(session_id: str) -> dict:
     try:
         events = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     return _build_arc_summary(events)
 
 
@@ -469,7 +469,7 @@ async def get_session(session_id: str) -> dict:
     try:
         events = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"session_id": session_id, "events": events}
 
 
@@ -483,7 +483,7 @@ async def export_session(session_id: str, session_number: int = 0) -> Any:
     try:
         events = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     md = _render_export_md(events, session_id, session_number)
 

@@ -30,10 +30,16 @@
   ].join(';');
   document.body.appendChild(tip);
 
+  // Seed aria-label on all static data-tooltip elements at init time.
+  document.querySelectorAll('[data-tooltip]').forEach(el => {
+    if (!el.getAttribute('aria-label')) el.setAttribute('aria-label', el.dataset.tooltip);
+  });
+
   let timer = null;
   let current = null;
 
   function show(el, e) {
+    if (!el.getAttribute('aria-label')) el.setAttribute('aria-label', el.dataset.tooltip);
     const s = window.__kollabThemeStyles || {};
     tip.style.background  = s.panel  || 'rgba(24,24,28,0.97)';
     tip.style.color       = s.muted  || '#b0b0c0';
