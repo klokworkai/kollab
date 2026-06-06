@@ -178,7 +178,7 @@ class Session:
         is_claude = self.state == "claude_turn"
         agent = self._claude if is_claude else self._codex
         actor = "claude" if is_claude else "codex"
-        role = "producer" if is_claude else "critic"
+        role = agent.role
         peer_name = "Codex" if is_claude else "Claude"
 
         if is_claude:
