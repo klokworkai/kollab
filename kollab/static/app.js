@@ -276,6 +276,11 @@ applyHistoryCollapse(true);
 // ------------------------------------------------------------------ tab persistence
 
 const TABS_KEY = 'kollab_open_tabs';
+const ROLE_KEY = 'kollab_claude_role';
+
+// Persisted role assignment: which role Claude plays ("producer" | "critic").
+// Codex always takes the opposite role.
+let _claudeRole = localStorage.getItem(ROLE_KEY) || 'producer';
 
 function saveOpenTabs() {
   const persistable = tabs
@@ -432,7 +437,16 @@ function renderTabBar() {
   oldTabs.forEach(el => el.remove());
 
   const countEl = document.getElementById('tab-count');
-  if (countEl) countEl.textContent = tabs.length > 0 ? `${tabs.length}` : '';
+  if (countEl) {
+    if (tabs.length > 0) {
+      countEl.textContent = `${tabs.length}`;
+      countEl.dataset.tooltip = `${tabs.length} open session${tabs.length === 1 ? '' : 's'}`;
+      countEl.classList.remove('hidden');
+    } else {
+      countEl.textContent = '';
+      countEl.classList.add('hidden');
+    }
+  }
 
   for (const tab of tabs) {
     const numPrefix = tab.sessionNumber ? `#${tab.sessionNumber} · ` : '';
@@ -854,13 +868,17 @@ function onState(msg) {
       if (msg.claude_model) tab.claudeModel = msg.claude_model;
       if (msg.codex_model)  tab.codexModel  = msg.codex_model;
       if (msg.round_limit)  tab.roundLimit  = msg.round_limit;
+      if (msg.claude_role)  tab.claudeRole  = msg.claude_role;
       if (isActiveTab) {
         // Update goal card number label now that we have it
         const goalNumEl = document.getElementById('goal-session-num');
         if (goalNumEl) goalNumEl.textContent = `Session #${msg.session_number}`;
         const goalMetaEl = document.getElementById('goal-meta-models');
         if (goalMetaEl && msg.claude_model && msg.codex_model) {
-          goalMetaEl.textContent = `Claude: ${msg.claude_model} · Codex: ${msg.codex_model} · rounds: ${msg.round_limit ?? '?'}`;
+          const cr = msg.claude_role || 'producer';
+          const producerModel = cr === 'producer' ? msg.claude_model : msg.codex_model;
+          const critiqueModel = cr === 'producer' ? msg.codex_model : msg.claude_model;
+          goalMetaEl.textContent = `Producer: ${producerModel} · Critique: ${critiqueModel} · rounds: ${msg.round_limit ?? '?'}`;
         }
       }
       renderTabBar();
@@ -1468,6 +1486,7 @@ btnNewSession.addEventListener('click', async () => {
 
   _resetAttachments();
 
+  _renderRolePills();
   document.getElementById('modal-new-session').classList.remove('hidden');
   document.getElementById('goal-input').focus();
 });
@@ -1476,6 +1495,34 @@ document.getElementById('btn-modal-cancel').addEventListener('click', async () =
   document.getElementById('modal-new-session').classList.add('hidden');
   await _clearStagingOnCancel();
   _resetAttachments();
+});
+
+function _renderRolePills() {
+  // Active style per agent: claude = orange border/tint, codex = blue border/tint
+  const styles = {
+    active:   { claude: 'border-claude bg-claudeTint text-user', codex: 'border-codex bg-codexTint text-user' },
+    inactive: 'border-white/20 bg-transparent text-muted',
+  };
+  // claude row
+  const claudeIsProducer = _claudeRole === 'producer';
+  const claudeBtn = document.getElementById('role-claude-active');
+  const codexBtn  = document.getElementById('role-codex-active');
+  if (claudeBtn) {
+    claudeBtn.textContent = claudeIsProducer ? 'Producer' : 'Critique';
+    claudeBtn.className = `role-pill px-3 py-1 rounded text-xs border transition ${styles.active.claude}`;
+  }
+  if (codexBtn) {
+    codexBtn.textContent = claudeIsProducer ? 'Critique' : 'Producer';
+    codexBtn.className = `role-pill px-3 py-1 rounded text-xs border transition ${styles.active.codex}`;
+  }
+}
+
+document.querySelectorAll('.role-pill').forEach(btn => {
+  btn.addEventListener('click', () => {
+    _claudeRole = _claudeRole === 'producer' ? 'critic' : 'producer';
+    localStorage.setItem(ROLE_KEY, _claudeRole);
+    _renderRolePills();
+  });
 });
 
 document.getElementById('btn-modal-start').addEventListener('click', async () => {
@@ -1503,6 +1550,7 @@ document.getElementById('btn-modal-start').addEventListener('click', async () =>
   if (!isNaN(tokensSession) && tokensSession > 0) body.max_tokens_per_session = tokensSession;
 
   if (_stagingId) body.staging_id = _stagingId;
+  body.claude_role = _claudeRole;
 
   document.getElementById('modal-new-session').classList.add('hidden');
   document.getElementById('goal-input').value = '';
@@ -2046,8 +2094,11 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
       _codexModel  = ev.payload?.codex_model  || '';
       _roundLimit  = ev.payload?.round_limit  ?? null;
       _startedAt   = ev.payload?.started_at ? new Date(ev.payload.started_at) : null;
+      const _reconClaudeRole = ev.payload?.claude_role || 'producer';
+      const _reconProducerModel = _reconClaudeRole === 'producer' ? _claudeModel : _codexModel;
+      const _reconCritiqueModel = _reconClaudeRole === 'producer' ? _codexModel : _claudeModel;
       const metaModels = (_claudeModel && _codexModel)
-        ? `Claude: ${_claudeModel} · Codex: ${_codexModel} · rounds: ${_roundLimit ?? '?'}`
+        ? `Producer: ${_reconProducerModel} · Critique: ${_reconCritiqueModel} · rounds: ${_roundLimit ?? '?'}`
         : '';
       goalCard = document.createElement('div');
       goalCard.className = 'kollab-goal-card rounded-lg border border-white/10 bg-panel p-3 flex flex-col gap-1.5';

@@ -19,8 +19,8 @@ from .attachments import (
 )
 from .config import Config
 from .prompts import (
-    SYSTEM_CRITIC, SYSTEM_PRODUCER,
     build_first_turn_prompt, build_turn_prompt,
+    system_critic, system_producer,
 )
 from .transcript import TranscriptLog
 from .webhooks import emit
@@ -48,6 +48,7 @@ class SessionOverrides:
     claude_model: str | None = None
     codex_model: str | None = None
     attachments: list[AttachmentMeta] = field(default_factory=list)
+    claude_role: str = "producer"  # "producer" | "critic"
 
 
 @dataclass
@@ -83,8 +84,16 @@ class Session:
         self._max_tokens_per_turn: int | None = ov.max_tokens_per_turn
         self._max_tokens_per_session: int | None = ov.max_tokens_per_session
         self._session_tokens: int = 0
+        self.claude_role: str = ov.claude_role if ov.claude_role in ("producer", "critic") else "producer"
+        codex_role: str = "critic" if self.claude_role == "producer" else "producer"
+        if self.claude_role == "producer":
+            self._claude_system: str = system_producer("Claude", "Codex")
+            self._codex_system: str = system_critic("Codex", "Claude")
+        else:
+            self._claude_system = system_critic("Claude", "Codex")
+            self._codex_system = system_producer("Codex", "Claude")
         self._claude = ClaudeAgent(
-            role="producer",
+            role=self.claude_role,
             binary=cfg.claude_binary,
             model=ov.claude_model or cfg.claude_model,
             workdir=Path(cfg.claude_workdir).expanduser().__str__(),
@@ -92,7 +101,7 @@ class Session:
             mcp_filesystem_paths=[Path(p).expanduser().__str__() for p in cfg.mcp_filesystem_paths],
         )
         self._codex = CodexAgent(
-            role="critic",
+            role=codex_role,
             binary=cfg.codex_binary,
             model=ov.codex_model or cfg.codex_model,
             workdir=Path(cfg.codex_workdir).expanduser().__str__(),
@@ -142,6 +151,7 @@ class Session:
                        "claude_model": self.claude_model,
                        "codex_model": self.codex_model,
                        "round_limit": self._round_limit,
+                       "claude_role": self.claude_role,
                        "started_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                        "attachments": [a.to_dict() for a in self._attachments],
                    }})
@@ -150,11 +160,12 @@ class Session:
                          "session_id": self.id,
                          "claude_model": self.claude_model,
                          "codex_model": self.codex_model,
+                         "claude_role": self.claude_role,
                          "round_limit": self._round_limit})
         self.state = "fanning_out"
         await asyncio.gather(
-            self._claude.start(SYSTEM_PRODUCER, goal),
-            self._codex.start(SYSTEM_CRITIC, goal),
+            self._claude.start(self._claude_system, goal),
+            self._codex.start(self._codex_system, goal),
         )
         self.state = "claude_turn"
         self._broadcast({"type": "state", "state": "claude_turn", "round": 1})

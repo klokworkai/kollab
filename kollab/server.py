@@ -155,6 +155,7 @@ class StartSessionBody(BaseModel):
     claude_model: str | None = None
     codex_model: str | None = None
     staging_id: str | None = None
+    claude_role: str | None = None  # "producer" | "critic"; None = default "producer"
 
 
 class UserInputBody(BaseModel):
@@ -209,6 +210,7 @@ async def start_session(body: StartSessionBody) -> dict:
         claude_model=_resolve(body.claude_model),
         codex_model=_resolve(body.codex_model),
         attachments=attachments,
+        claude_role=body.claude_role or "producer",
     )
     session = Session(_cfg, _broadcast, overrides=overrides,
                       session_number=next_session_number(_cfg),
