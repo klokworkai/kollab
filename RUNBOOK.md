@@ -223,33 +223,7 @@ jq '.' ~/.kollab/sessions/<session-id>.jsonl | less
 
 ---
 
-## 14. Run via Docker
-
-> ⚠️ **The Dockerfile has not been tested. The instructions below reflect the intended setup but may require adjustment. Use local install (§5–6) for a reliable setup.**
-
-Build the image:
-
-```bash
-docker build -t kollab .
-```
-
-Run it, mounting your existing auth directories:
-
-```bash
-docker run --rm -p 8765:8765 \
-  -v ~/.kollab:/root/.kollab \
-  -v ~/.claude:/root/.claude \
-  -v ~/.codex:/root/.codex \
-  kollab
-```
-
-Open `http://localhost:8765` in your browser.
-
-The mounts pass your existing Claude Code and Codex CLI auth through to the container — you don't need to re-authenticate inside it. Session data (JSONL logs, config) is written to `/root/.kollab` inside the container, which maps to `~/.kollab` on your host via the volume mount. Without that mount, session data is lost when the container stops.
-
----
-
-## 15. Run tests
+## 14. Run tests
 
 ```bash
 pip3 install -e ".[dev]"
@@ -257,6 +231,67 @@ python3 -m pytest tests/ -v
 ```
 
 All 36 tests should pass. These cover config round-trip, verdict parsing, turn ID generation, response reference parsing, prompt building, API auth, and webhook delivery.
+
+---
+
+## 15. Uninstall
+
+Remove kollab completely from your machine.
+
+**1. Stop any running instance**
+
+If kollab is running, stop it with `Ctrl+C` in the terminal where it's running, or:
+
+```bash
+# if you configured an API key, include -H "Authorization: Bearer <key>"
+curl -s -X POST http://localhost:8765/api/shutdown
+```
+
+**2. Uninstall the Python package**
+
+```bash
+pip3 uninstall kollab
+```
+
+If you installed with `-e` (editable mode), this removes the package registration. Also delete the repo directory:
+
+```bash
+rm -rf /path/to/kollab        # wherever you cloned it
+```
+
+**3. Remove kollab data (optional)**
+
+This deletes all session logs, config, MCP packages, and agent workspaces. **This is permanent — session JSONL files cannot be recovered.**
+
+```bash
+rm -rf ~/.kollab
+```
+
+If you want to keep your session history but remove everything else:
+
+```bash
+# remove config, workspaces, MCP packages — keep sessions
+rm -f ~/.kollab/config.toml
+rm -rf ~/.kollab/workspace
+rm -rf ~/.kollab/mcp
+rm -f ~/.kollab/kollab.log
+```
+
+**4. Remove Claude Code and Codex CLIs (optional)**
+
+These are independent tools — only remove them if you're not using them for anything else.
+
+```bash
+npm uninstall -g @anthropic-ai/claude-code
+npm uninstall -g @openai/codex
+```
+
+Their auth tokens live in `~/.claude` and `~/.codex` respectively. Remove those directories if you want a full clean:
+
+```bash
+rm -rf ~/.claude
+rm -rf ~/.codex
+```
 
 ---
 

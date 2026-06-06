@@ -76,4 +76,4 @@ All notable changes to koll♠b are documented here. Format follows [Keep a Chan
 - Session lifecycle sequence diagram (`docs/kollab_session_lifecycle_v3.svg`)
 - Formal specs: `specs/ace-orchestration.md`, `specs/ace-api-webhooks.md`
 - Example sessions: `examples/`
-- Single Dockerfile, `kollab` entry point command
+- Single `kollab` entry point command
