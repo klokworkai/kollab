@@ -88,14 +88,12 @@ This installs all Python dependencies (`fastapi`, `uvicorn`, `claude-agent-sdk`,
 Verify:
 
 ```bash
-python3 -m kollab --help
-# or if your Python bin dir is on PATH:
-kollab --help
+kollab --version
+# or
+python3 -m kollab --version
 ```
 
-You should see uvicorn start and immediately stop (no `--help` flag — that's expected; it just means the entry point is wired up).
-
-> **Note:** If `kollab` isn't on your PATH, use `python3 -m kollab` everywhere in this runbook.
+> **Note:** `--help` and `--version` flags are not supported — the entry point starts the server directly. If the command runs and stops without error, the install is wired up correctly. If `kollab` isn't on your PATH, use `python3 -m kollab` everywhere in this runbook.
 
 ---
 
@@ -149,8 +147,8 @@ Click **Save**. If you see a red error about a binary not found, check that the 
 
 What happens next:
 - The goal is sent to both Claude and Codex simultaneously
-- Claude takes turn 1 (producer role — writes the initial response)
-- Codex takes turn 2 (critic role — adversarially reviews Claude's response)
+- Claude always takes turn 1 (`C-1`); the role shown depends on your session configuration (producer by default)
+- Codex takes turn 2 (`X-1`); the inverse role
 - They alternate until one of the stop conditions is met
 
 Each turn appears as a colored card:
@@ -199,7 +197,7 @@ A session ends when one of these conditions is met:
 
 | Condition | What you see |
 |-----------|-------------|
-| Codex issues `AGREE` verdict | "✓ Converged." |
+| Critic issues `AGREE` verdict | "✓ Converged." |
 | Round limit is reached | "⚠ Round limit reached." |
 | You clicked Stop and didn't Resume | "⏹ Session halted." |
 
@@ -227,6 +225,8 @@ jq '.' ~/.kollab/sessions/<session-id>.jsonl | less
 
 ## 14. Run via Docker
 
+> ⚠️ **The Dockerfile has not been tested. The instructions below reflect the intended setup but may require adjustment. Use local install (§5–6) for a reliable setup.**
+
 Build the image:
 
 ```bash
@@ -245,7 +245,7 @@ docker run --rm -p 8765:8765 \
 
 Open `http://localhost:8765` in your browser.
 
-The mounts pass your existing Claude Code and Codex CLI auth through to the container — you don't need to re-authenticate inside it.
+The mounts pass your existing Claude Code and Codex CLI auth through to the container — you don't need to re-authenticate inside it. Session data (JSONL logs, config) is written to `/root/.kollab` inside the container, which maps to `~/.kollab` on your host via the volume mount. Without that mount, session data is lost when the container stops.
 
 ---
 
@@ -256,7 +256,7 @@ pip3 install -e ".[dev]"
 python3 -m pytest tests/ -v
 ```
 
-All 35 tests should pass. These cover config round-trip, verdict parsing, turn ID generation, response reference parsing, prompt building, API auth, and webhook delivery.
+All 36 tests should pass. These cover config round-trip, verdict parsing, turn ID generation, response reference parsing, prompt building, API auth, and webhook delivery.
 
 ---
 

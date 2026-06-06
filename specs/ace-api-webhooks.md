@@ -1,8 +1,10 @@
 # ACE API + Webhook Spec
 
-**Status:** In progress / partially implemented  
+**Status:** Implemented — not end-to-end validated  
 **Scope:** Headless API access to kollab sessions + structured webhook event emission  
-**Target modules:** `server.py`, `config.py`, `ace.py` (minimal touch), new `webhooks.py`
+**Target modules:** `server.py`, `config.py`, `ace.py`, `webhooks.py`
+
+> ⚠️ **The REST API and webhook layer are implemented in the codebase but have not been end-to-end tested or validated against any live integration target. Do not rely on them in any workflow. A Slack or GitHub Actions integration must be built and validated before this can be considered shippable. Webhook targets are configured by editing `~/.kollab/config.toml` directly — there is no UI for this.**
 
 ---
 
@@ -19,10 +21,11 @@
 | Slack URL auto-detection | ✅ Implemented | Slack URLs moved from `targets` to `slack_targets` at config load |
 | Slack Block Kit payload shaping | ✅ Implemented | All 8 event types shaped |
 | ACE emit call sites | ✅ Implemented | All 9 emit points wired in `ace.py` |
-| Configure modal — Webhooks section | ⏳ Planned | Parked pending field validation; not yet in `app.js` |
+| Configure modal — Webhooks section | ❌ Not implemented | Not in `app.js`; configure via `config.toml` directly |
 | `httpx` dependency | ✅ Implemented | Added to `pyproject.toml` |
-| Test coverage — `test_webhooks.py` | ⏳ In progress | Core cases written; coverage not yet complete |
+| Test coverage — `test_webhooks.py` | ⏳ In progress | Core cases written; not fully validated |
 | Test coverage — `test_api_auth.py` | ⏳ In progress | Auth cases written; edge cases pending |
+| End-to-end integration (Slack or GHA) | ❌ Not done | Required before this layer is usable |
 
 ---
 

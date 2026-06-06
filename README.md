@@ -2,22 +2,22 @@
 
 **koll♠b** — a structured validation and correction layer for AI-generated proposals, with a full audit trail.
 
-koll♠b runs two AI coding agents — **Claude** (Anthropic) and **Codex** (OpenAI) — through a critique-revision loop on a shared engineering objective. One agent produces; the other validates. Every critique, revision, and concession is streamed live to a browser UI and logged to disk. You don't just get an answer — you get a validated artifact and the complete record of how it got there.
+koll♠b runs two AI coding agents — **Claude** (Anthropic) and **Codex** (OpenAI) — through a critique-revision loop on a shared engineering objective. The roles are configurable: either model can be the producer or the critic. Every critique, revision, and concession is streamed live to a browser UI and logged to disk. You don't just get an answer — you get a validated artifact and the complete record of how it got there.
 
-> Early-stage demo. Not for production use.
+> Independent Contributor (IC) tool. Not for production use, yet.
 
 ---
 
 ## What kollab does
 
-Two agents, fixed roles, one shared goal. The full validation trace is visible in real time.
+Two agents, configurable roles, one shared goal. The full validation trace is visible in real time.
 
-1. User submits an engineering objective
-2. Claude (producer) generates an initial proposal
-3. Codex (critic) reviews it, identifies real gaps, and issues a verdict — `AGREE`, `DISAGREE`, or `REVISED`
+1. User submits an engineering objective and assigns roles — producer and critic — to each agent
+2. The producer generates an initial proposal
+3. The critic reviews it, identifies real gaps, and issues a verdict — `AGREE`, `DISAGREE`, or `REVISED`
 4. ACE enforces the critique-revision loop — turn by turn, verdict by verdict — until the proposal passes or the round limit is reached
 5. User can halt at any point, inject a directive into one or both agents, and resume
-6. Session ends on Codex `AGREE`, round limit, or user halt — the full critique trail is exported alongside the final proposal
+6. Session ends on critic `AGREE`, round limit, or user halt — the full critique trail is exported alongside the final proposal
 
 The product is a **validated proposal with an auditable provenance trail** — not just AI output.
 
@@ -27,15 +27,15 @@ The product is a **validated proposal with an auditable provenance trail** — n
 
 Most AI-assisted engineering workflows are single-model and unvalidated: you send a prompt, you get output, and you have no independent review, no forced revision, and no record of what tradeoffs were made or what the model didn't challenge itself on. You're asked to trust the output without any basis for that trust.
 
-koll♠b introduces a validation layer. Two independent models work on the same goal with fixed roles — one produces, one critiques — and neither can skip the other's objections. The critic must find substantive flaws or concede. The producer must address real critique or hold its ground with reasoning. Every turn is logged, streamed live, and replayable. The result isn't just an answer — it's a proposal that has been challenged and either survived or been improved by that challenge.
+koll♠b introduces a validation layer. Two independent models work on the same goal with assigned roles — one produces, one critiques — and neither can skip the other's objections. The critic must find substantive flaws or concede. The producer must address real critique or hold its ground with reasoning. Every turn is logged, streamed live, and replayable. The result isn't just an answer — it's a proposal that has been challenged and either survived or been improved by that challenge.
 
 **Three mechanics that make this work:**
 
-- **Structured convergence protocol.** Every turn ends with a `<verdict>` trailer — `AGREE`, `DISAGREE`, or `REVISED`. ACE parses this mechanically. Codex `AGREE` is the sole convergence signal — the critic is the validation arbiter, not a heuristic. You know exactly why the session closed.
+- **Structured convergence protocol.** Every turn ends with a `<verdict>` trailer — `AGREE`, `DISAGREE`, or `REVISED`. ACE parses this mechanically. Critic `AGREE` is the sole convergence signal — the critic is the validation arbiter, not a heuristic. You know exactly why the session closed.
 - **Human intervention is first-class.** Stop can fire at any point including mid-stream. The partial output is preserved as an observable artifact but never fed back into any agent's prompt. Directive injection is per-actor and queued — multiple directives accumulate, not overwrite. This is a state machine, not a kill switch bolted on after the fact.
 - **Observability is structural, not opt-in.** Turn IDs are stable for the session lifetime. Reasoning blocks are separated from response text. Interrupted turns keep their ID and remain visible. Every event is typed, logged to JSONL, and replayable from disk. You can't accidentally make a session un-auditable.
 
-The browser UI is a window into the validation process — a factory tour, not the factory itself. What comes out the other end is a proposal you can trust because you watched every challenge it faced.
+The browser UI is a window into the validation process — a factory tour, not the factory itself. What comes out the other end is a proposal you can trust because you can watch every challenge it faced.
 
 ---
 
@@ -53,16 +53,18 @@ idle → fanning_out → claude_turn ⇄ codex_turn → done
                        expired
 ```
 
-**Roles are fixed per session:**
+**Roles are assigned per session and are configurable:**
 
-- **Claude — Producer.** Writes the initial proposal and refines it under critique. Claude's first turn is always `PROPOSAL` — no verdict on C-1.
-- **Codex — Critic.** Reviews Claude's output, finds substantive gaps, and issues a verdict each turn. A single Codex `AGREE` closes the session — the critic's sign-off is the validation gate.
+Either agent can be assigned the producer or critic role when starting a session. The default is Claude as producer and Codex as critic, but this is reversible in the New Session dialog.
+
+- **Producer.** Writes the initial proposal and refines it under critique. The producer's first turn is always `PROPOSAL` — no verdict on turn 1.
+- **Critic.** Reviews the producer's output, finds substantive gaps, and issues a verdict each turn. A single critic `AGREE` closes the session — the critic's sign-off is the validation gate.
 
 **Verdict protocol:**
 
 | Verdict | Meaning |
 |---|---|
-| `AGREE` | Proposal passes validation — session ends (Codex only) |
+| `AGREE` | Proposal passes validation — session ends (critic only) |
 | `DISAGREE` | Critique not addressed — loop continues |
 | `REVISED` | Proposal updated in response to critique — loop continues |
 
@@ -100,7 +102,7 @@ koll♠b is five layers. Together they enforce a structured validation protocol 
 
 ## Inspectability
 
-Observability is what makes the validation trustworthy. A Codex `AGREE` means something because you can see every critique that preceded it and every revision it forced. Every decision point in the orchestration is visible:
+Observability is what makes the validation trustworthy. A critic `AGREE` means something because you can see every critique that preceded it and every revision it forced. Every decision point in the orchestration is visible:
 
 - Turn IDs (`C-1`, `X-1`, ...) are stable for the session lifetime — interrupted turns keep their ID, completed turns never renumber.
 - Reasoning blocks are surfaced per turn alongside the response text.
@@ -111,11 +113,13 @@ Observability is what makes the validation trustworthy. A Codex `AGREE` means so
 
 ---
 
-## API and webhooks *(in progress)*
+## REST API and webhooks *(implemented, not validated)*
 
-The REST API for headless session control is implemented — start, stop, resume, and poll sessions via HTTP without a browser. A webhook emission layer (`webhooks.py`) is implemented but not yet end-to-end validated: it fires structured events (`disagreement`, `convergence`, `halt`, `directive`, and others) to any HTTP endpoint, with Slack incoming webhooks as a first-class target.
+> ⚠️ **The REST API and webhook layer are implemented in the codebase but have not been end-to-end tested or validated against any live integration target. Do not rely on them in any workflow. They are provided as a foundation for future integration work only.**
 
-When fully validated, this enables integration patterns like Slack notifications on convergence, GitHub Actions validation gates on PRs, and CI pipeline critique passes.
+A REST API for headless session control exists — start, stop, resume, and poll sessions via HTTP without a browser. A webhook emission layer (`webhooks.py`) fires structured events (`disagreement`, `convergence`, `halt`, `directive`, and others) to any configured HTTP endpoint, with Slack incoming webhooks as a supported target format.
+
+Webhook targets are configured by editing `~/.kollab/config.toml` directly under the `[webhooks]` section. There is no UI for this yet.
 
 Full design spec: [`specs/ace-api-webhooks.md`](specs/ace-api-webhooks.md)
 
@@ -143,7 +147,7 @@ Config lives at `~/.kollab/config.toml`. The **⚙ Configure** modal is the reco
 | Field | Default | Description |
 |---|---|---|
 | `claude_binary` | `claude` | Path to Claude Code CLI |
-| `claude_model` | `claude-sonnet-4-6` | Default Claude model. Short aliases (`haiku`, `sonnet`, `opus`) are also accepted and resolved to full model strings at runtime. |
+| `claude_model` | `claude-sonnet-4-6` | Default Claude model. Short aliases (`haiku`, `sonnet`, `opus`) are also accepted. |
 | `codex_binary` | `codex` | Path to Codex CLI |
 | `codex_model` | `gpt-5.4` | Default Codex model. Short alias `mini` resolves to `gpt-5.4-mini`. |
 | `round_limit` | `8` | Max rounds per session |
@@ -152,7 +156,7 @@ Config lives at `~/.kollab/config.toml`. The **⚙ Configure** modal is the reco
 | `mcp_filesystem_enabled` | `true` | Give Claude filesystem MCP access |
 | `logging_enabled` | `false` | Write logs to `~/.kollab/kollab.log` |
 
-Per-session overrides (model, round limit, token budget) are set in the New Session modal.
+Per-session overrides (role assignment, model, round limit, token budget) are set in the New Session modal.
 
 ---
 
@@ -175,11 +179,15 @@ uvicorn kollab.server:app --reload --port 8765
 
 ---
 
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md).
+
+---
+
 ## Status
 
-v1.0.0 — active development. Core validation loop, halt/resume, directive injection, history, streaming, export, and readonly replay are complete. REST API implemented.
-
-**In progress:** Webhook emission layer (implemented, not yet end-to-end validated). GitHub MCP integration and Slack/GitHub adapters are planned.
+v1.0.0 — feature complete. Core validation loop, configurable role assignment, halt/resume, directive injection, file attachments, session history, streaming, export, and readonly replay are complete. REST API and webhook layer are implemented but not end-to-end validated — see disclaimer above.
 
 ---
 

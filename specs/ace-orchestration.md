@@ -23,23 +23,22 @@ This framing maps directly to known platform engineering patterns:
 
 ## 2. Actors
 
-### 2.1 Claude — Producer
+### 2.1 Claude
 
-- **Role:** Fixed for the session lifetime. Produces the initial proposal and all subsequent revisions or defenses.
-- **First turn:** Always a `PROPOSAL`. No `<verdict>` trailer on C-1 — there is nothing to agree or disagree with yet. ACE does not parse a verdict from C-1.
-- **Subsequent turns:** Must end with `<verdict>AGREE|DISAGREE|REVISED</verdict>`.
-- **Session memory:** Persistent across all turns via `ClaudeSDKClient`. ACE passes only the peer's latest message — Claude builds on its own prior context internally.
+- **Role:** Assigned per session — either producer or critic. Default is producer. Role is set via `claude_role` in `SessionOverrides` and is fixed for the session lifetime.
 - **Transport:** Claude Agent SDK (`claude-agent-sdk`). In-process, streaming. `interrupt()` cancels in-flight turn without tearing down the session.
+- **Session memory:** Persistent across all turns via `ClaudeSDKClient`. ACE passes only the peer's latest message — Claude builds on its own prior context internally.
 - **Identity signal:** `session_id` from `ResultMessage` after each turn. Shown in UI as truncated badge.
+- **MCP:** Filesystem MCP supported when `mcp_filesystem_enabled` is true.
 
-### 2.2 Codex — Critic
+### 2.2 Codex
 
-- **Role:** Fixed for the session lifetime. Adversarially reviews the producer's output, finds substantive flaws, and issues a verdict each turn.
-- **All turns:** Must end with `<verdict>AGREE|DISAGREE|REVISED</verdict>`.
-- **Session memory:** Persistent across turns via `codex exec resume <thread_id>`. Thread ID captured from `thread.started` event on first turn.
+- **Role:** Assigned per session — the inverse of Claude's role. If Claude is producer, Codex is critic; if Claude is critic, Codex is producer. Fixed for the session lifetime.
 - **Transport:** `codex exec` CLI as subprocess. JSON stream on stdout. `interrupt()` calls `proc.terminate()` with 2s timeout before `proc.kill()`. Session continuity preserved — `_session_id` (thread ID) is never cleared.
-- **Convergence authority:** Codex AGREE is the **only** convergence signal. Claude AGREE does not close the session. The critic is the sole arbiter of whether the goal is satisfied.
+- **Session memory:** Persistent across turns via `codex exec resume <thread_id>`. Thread ID captured from `thread.started` event on first turn.
 - **MCP:** Not supported. `codex exec` CLI has no `--mcp-server` flag. MCP constructor params are accepted but no-op.
+
+**Convergence authority belongs to the critic**, regardless of which agent holds that role. The critic's `AGREE` is the sole convergence signal. The producer's `AGREE` has no mechanical effect on session state.
 
 ### 2.3 User — Observer and Director
 
@@ -118,6 +117,8 @@ Turn IDs are stable for the session lifetime. They are never reassigned, never d
 - Claude turns: `C-{n}` where `n = _claude_turn_count` incremented at the start of each Claude turn
 - Codex turns: `X-{n}` where `n = _codex_turn_count` incremented at the start of each Codex turn
 - An interrupted C-3 stays C-3. The next Claude turn is C-4.
+
+Claude always goes first regardless of role assignment — so the first turn is always `C-1`. However, the *role* on that turn depends on session configuration: `C-1` is a `PROPOSAL` if Claude is the producer, or an adversarial opening critique if Claude is the critic.
 
 ### 4.2 Round numbering
 
@@ -208,30 +209,31 @@ ACE parses via regex: `r"<verdict>\s*(AGREE|DISAGREE|REVISED)\s*</verdict>"` (ca
 
 | Verdict | Emitter | Meaning | ACE action |
 |---|---|---|---|
-| `AGREE` | Codex | Critic accepts producer's last response; goal is satisfied | Close session; `end_reason = "convergence"` |
-| `AGREE` | Claude | Producer accepts critic's last point | No convergence effect; loop continues |
+| `PROPOSAL` | Producer (turn 1 only) | Initial proposal — no verdict trailer; ACE does not parse a verdict from the first producer turn | No action; loop continues to critic |
+| `AGREE` | Critic | Critic accepts producer's last response; goal is satisfied | Close session; `end_reason = "convergence"` |
+| `AGREE` | Producer | Producer accepts critic's last point | No convergence effect; loop continues |
 | `DISAGREE` | Either | Position held; critique or defense rejected | Continue loop |
 | `REVISED` | Either | Work or critique updated in light of peer response | Continue loop |
 
-**Codex AGREE is the sole convergence signal.** Claude AGREE has no mechanical effect on session state.
+**The critic's AGREE is the sole convergence signal**, regardless of which agent holds the critic role. The producer's AGREE has no mechanical effect on session state.
 
 ### 5.3 Missing verdict
 
-If ACE parses no verdict from a completed turn (malformed output, agent truncation), `turn.verdict` is `None`. ACE treats a missing verdict from Codex the same as `DISAGREE` — the loop continues. A missing verdict from Claude on C-1 is expected and correct.
+If ACE parses no verdict from a completed turn (malformed output, agent truncation), `turn.verdict` is `None`. ACE treats a missing verdict from the critic the same as `DISAGREE` — the loop continues. A missing verdict from the producer on turn 1 is expected and correct.
 
 ---
 
 ## 6. Convergence Conditions
 
-A session transitions to `done` when any of the following is true, checked in this order at the end of each Codex turn:
+A session transitions to `done` when any of the following is true, checked in this order at the end of each critic turn:
 
 | Condition | `end_reason` | Check |
 |---|---|---|
-| Codex emits `AGREE` | `"convergence"` | `not is_claude and turn.verdict == "AGREE"` |
+| Critic emits `AGREE` | `"convergence"` | `actor == critic_actor and turn.verdict == "AGREE"` |
 | Session token budget exhausted | `"token_limit"` | `_max_tokens_per_session and _session_tokens >= _max_tokens_per_session` |
-| Round limit reached | `"round_limit"` | `self.round >= self._round_limit and not is_claude` |
+| Round limit reached | `"round_limit"` | `self.round >= self._round_limit and actor == critic_actor` |
 
-Checks are evaluated after each Codex turn only — Claude turns do not trigger terminal evaluation. Round limit is checked against the round of the current Codex turn, not a turn counter.
+Checks are evaluated after each critic turn only — producer turns do not trigger terminal evaluation.
 
 **Halt timeout** is a separate convergence path:
 
@@ -321,15 +323,19 @@ Every state transition and data event in ACE produces two outputs simultaneously
 
 ### 10.2 WebSocket message taxonomy
 
+All message types actually broadcast by `ace.py`:
+
 | `type` | Trigger | Key fields |
 |---|---|---|
-| `state` | Any state transition | `state`, `round` |
-| `turn_start` | Turn begins | `turn_id`, `actor`, `role`, `round` |
+| `state` | Any state transition | `state`, `round`; on `fanning_out` also includes `session_number`, `session_id`, `claude_model`, `codex_model`, `claude_role`, `round_limit` |
+| `turn_start` | Turn begins | `turn_id`, `actor`, `role`, `round`, `model` |
 | `turn_chunk` | Streaming chunk arrives | `turn_id`, `kind` (text/reasoning/done), `content` |
-| `turn_end` | Turn completes | `turn_id`, `verdict`, `duration_ms`, `thread_id` |
+| `turn_end` | Turn completes | `turn_id`, `actor`, `verdict`, `duration_ms`, `text`, `summary`, `session_id` |
 | `turn_cancel` | Interrupted turn | `turn_id` |
-| `session_done` | Terminal state | `reason`, `session_id`, `session_number` |
-| `error` | Unhandled exception in turn loop | `message` |
+| `session_done` | Terminal state | `reason`, `session_id`, `session_number`, `round_limit` |
+| `error` | Unhandled exception in turn loop (emitted by `server.py`) | `message` |
+
+Note: `turn_end` includes a `summary` field — this is the per-turn TL;DR text extracted from `<tldr>` tags in the agent output. The UI uses this for the ARC session summary view. If no `<tldr>` tag is present, `summary` is an empty string.
 
 ### 10.3 Observability properties
 
@@ -337,6 +343,7 @@ Every state transition and data event in ACE produces two outputs simultaneously
 - **No silent drops** — every chunk that reaches ACE before the halt flag is set is broadcast and appended. After the flag, chunks are discarded but the drain loop runs to completion.
 - **Replay is exact** — the JSONL log contains all information needed to reconstruct the full session UI state, including interrupted turns, directives, and reasoning blocks.
 - **Reasoning is not peer input** — reasoning blocks are observable to the user and logged to JSONL, but are never included in the peer's prompt. They are metadata on the turn, not part of the dialogue.
+- **Per-turn TL;DR (summary)** — if the agent includes a `<tldr>...</tldr>` block in its output, ACE extracts it into `turn.summary`. This is logged to JSONL and broadcast in `turn_end`. The UI uses these summaries to build the ARC session summary view (a compact synthesis of the session's arc). Turns without a `<tldr>` tag have an empty `summary` field and are omitted from the ARC view.
 
 ---
 
@@ -370,5 +377,7 @@ ACE reads the following fields from `Config` at session construction. Changes to
 | `halt_timeout_secs` | Auto-expiry timer on halt (0 = disabled) |
 | `mcp_filesystem_enabled` | Whether to pass filesystem MCP config to Claude |
 | `mcp_filesystem_paths` | Allowed paths for filesystem MCP |
+
+Per-session overrides also accept `claude_role` (`"producer"` | `"critic"`) — determines which role Claude takes and assigns the inverse to Codex. Defaults to `"producer"` if not specified.
 
 Per-session overrides (`SessionOverrides`) take precedence over config fields for `round_limit`, `claude_model`, `codex_model`, `max_tokens_per_turn`, and `max_tokens_per_session`.
