@@ -88,9 +88,9 @@ This installs all Python dependencies (`fastapi`, `uvicorn`, `claude-agent-sdk`,
 Verify:
 
 ```bash
-kollab --version
+kollab
 # or
-python3 -m kollab --version
+python3 -m kollab
 ```
 
 > **Note:** `--help` and `--version` flags are not supported — the entry point starts the server directly. If the command runs and stops without error, the install is wired up correctly. If `kollab` isn't on your PATH, use `python3 -m kollab` everywhere in this runbook.
@@ -139,7 +139,7 @@ Click **Save**. If you see a red error about a binary not found, check that the 
 ## 8. Start a session
 
 1. Click **↻ New Session** in the top bar
-2. Type a goal in the textarea — for example:
+2. Type a goal in the text area — for example:
 
    > Design a simple rate-limiting strategy for a public REST API. Justify your choices.
 
