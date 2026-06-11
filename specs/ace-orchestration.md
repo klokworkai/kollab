@@ -11,7 +11,7 @@
 
 ACE is the orchestration control plane for a kollab session. It is a reconciliation loop: the desired state is convergence between two AI agents on a shared goal; the actual state is the current verdict and round count; ACE continuously drives toward the desired state by sequencing turns, enforcing role boundaries, and parsing structured signals from agent output.
 
-ACE does not understand the content of what agents produce. It reads one structured signal — the `<verdict>` trailer — and acts on it mechanically. The intelligence is in the agents. ACE runs the show.
+ACE does not try to understand the content of what the agents produce. It reads one structured signal — the `<verdict>` trailer — and acts on it mechanically. The intelligence is in the agents. ACE runs the show.
 
 This framing maps directly to known platform engineering patterns:
 - **Kubernetes controller** — desired state (convergence) vs actual state (current verdict), reconcile loop
