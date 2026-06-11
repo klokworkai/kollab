@@ -123,7 +123,7 @@ Webhook targets are configured by editing `~/.kollab/config.toml` directly under
 
 Full design spec: [`specs/ace-api-webhooks.md`](specs/ace-api-webhooks.md)
 
-NOTE: The REST API/webhook was layer envisioned at a much earlier stage. But the AI domain/space moves at such a rapid pace that there now exist a wide variety of multi-agent/multi-role orchestrating tools/framekworks before some of the koll♠b's initial ideas could see daylight. These ideas/features still could be implemented in koll♠b with additions/changes at a later date.
+NOTE: The REST API/webhook was layer envisioned at a much earlier stage. But the AI domain/space moves at such a rapid pace that there now exist a wide variety of multi-agent/multi-role orchestrating tools/frameworks before some of the koll♠b's initial ideas could see daylight. These ideas/features still could be implemented in koll♠b with additions/changes at a later date.
 
 ---
 
