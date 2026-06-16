@@ -86,6 +86,8 @@ koll♠b is five layers. Together they enforce a structured validation protocol 
 - **Agents** — `claude_agent.py` wraps the Claude Agent SDK for persistent in-process sessions with filesystem MCP. `codex_agent.py` drives the `codex exec` CLI as a subprocess with session resume via thread ID. Both implement `interrupt()` without tearing down the session.
 - **Persistence** — append-only JSONL event log per session (`transcript.py`), TOML config (`config.py`), optional file log (`~/.kollab/kollab.log`).
 
+![kollab architecture](docs/kollab_architecture_v5.svg)
+
 **Session lifecycle:**
 
 ![kollab session lifecycle](docs/kollab_session_lifecycle_v3.svg)
