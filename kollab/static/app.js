@@ -96,6 +96,7 @@ const userInput     = document.getElementById('user-input');
 const btnSend       = document.getElementById('btn-send');
 const btnStop       = document.getElementById('btn-stop');
 const btnResume     = document.getElementById('btn-resume');
+const btnEndSession = document.getElementById('btn-end-session');
 const inputTarget   = document.getElementById('input-target');
 const tabBar        = document.getElementById('tab-bar');
 const btnNewSession = document.getElementById('btn-new-session');
@@ -525,6 +526,9 @@ function updateInputStrip(tab) {
   if (isReadonly) {
     btnStop.classList.add('hidden');
     btnResume.classList.add('hidden');
+    btnEndSession.classList.add('hidden');
+  } else {
+    btnEndSession.classList.toggle('hidden', !isHalted);
   }
 }
 
@@ -857,6 +861,7 @@ function onState(msg) {
       btnStop.classList.remove('opacity-50');
     }
     btnResume.classList.toggle('hidden', msg.state !== 'halted');
+    btnEndSession.classList.toggle('hidden', msg.state !== 'halted');
   }
 
   const tab = targetTab || activeTab();
@@ -869,6 +874,12 @@ function onState(msg) {
       if (msg.codex_model)  tab.codexModel  = msg.codex_model;
       if (msg.round_limit)  tab.roundLimit  = msg.round_limit;
       if (msg.claude_role)  tab.claudeRole  = msg.claude_role;
+      tab.promptInfo = {
+        producer_prompt_disabled: !!msg.producer_prompt_disabled,
+        critic_prompt_disabled: !!msg.critic_prompt_disabled,
+        producer_user_prompt: msg.producer_user_prompt || '',
+        critic_user_prompt: msg.critic_user_prompt || '',
+      };
       if (isActiveTab) {
         // Update goal card number label now that we have it
         const goalNumEl = document.getElementById('goal-session-num');
@@ -880,6 +891,7 @@ function onState(msg) {
           const critiqueModel = cr === 'producer' ? msg.codex_model : msg.claude_model;
           goalMetaEl.textContent = `Producer: ${producerModel} · Critique: ${critiqueModel} · rounds: ${msg.round_limit ?? '?'}`;
         }
+        renderPromptStatusChips(document.getElementById(`goal-prompt-status-${tab.id}`), tab.promptInfo);
       }
       renderTabBar();
     }
@@ -890,7 +902,30 @@ function onState(msg) {
   }
 }
 
-function buildSummaryCard(entries, endReason) {
+// Renders up to 4 minimal chips reflecting producer/critic system-prompt status.
+// `src` may be a config object (producer_system_prompt_disabled / producer_user_prompt, etc.)
+// or the equivalent fields off a fanning_out broadcast / tab.
+function renderPromptStatusChips(container, src) {
+  if (!container) return;
+  container.innerHTML = '';
+  function addChip(text, kind) {
+    const chip = document.createElement('span');
+    chip.className = kind === 'off'
+      ? 'px-1.5 py-0.5 rounded text-red-400 bg-red-500/15'
+      : 'px-1.5 py-0.5 rounded text-green-400 bg-green-500/15';
+    chip.textContent = text;
+    container.appendChild(chip);
+  }
+  for (const [roleLabel, disabled, userPrompt] of [
+    ['Producer', !!src.producer_system_prompt_disabled || !!src.producer_prompt_disabled, !!(src.producer_user_prompt || '').trim()],
+    ['Critique', !!src.critic_system_prompt_disabled || !!src.critic_prompt_disabled, !!(src.critic_user_prompt || '').trim()],
+  ]) {
+    if (disabled) addChip(`${roleLabel} prompt off`, 'off');
+    if (userPrompt) addChip(`${roleLabel} prompt custom`, 'custom');
+  }
+}
+
+function buildSummaryCard(entries, endReason, promptInfo) {
   const validEntries = entries.filter(e => e.summary);
   if (!validEntries.length && !endReason) return null;
   const card = document.createElement('div');
@@ -926,6 +961,26 @@ function buildSummaryCard(entries, endReason) {
     row.appendChild(idEl);
     row.appendChild(textEl);
     body.appendChild(row);
+  }
+
+  if (promptInfo && ((promptInfo.producer_user_prompt || '').trim() || (promptInfo.critic_user_prompt || '').trim())) {
+    const customDivider = document.createElement('div');
+    customDivider.className = 'border-t border-white/10 mt-1 pt-1 flex flex-col gap-0.5';
+    for (const [label, text] of [
+      ['Producer custom instructions', (promptInfo.producer_user_prompt || '').trim()],
+      ['Critique custom instructions', (promptInfo.critic_user_prompt || '').trim()],
+    ]) {
+      if (!text) continue;
+      const line = document.createElement('p');
+      line.className = 'text-xs text-muted';
+      const strong = document.createElement('span');
+      strong.className = 'text-green-400';
+      strong.textContent = `${label}: `;
+      line.appendChild(strong);
+      line.appendChild(document.createTextNode(text));
+      customDivider.appendChild(line);
+    }
+    body.appendChild(customDivider);
   }
 
   if (endReason) {
@@ -1059,7 +1114,7 @@ function onSessionDone(msg) {
     timingSpan.textContent = `started ${fmtTime(tab.startedAt)} · ended ${fmtTime(tab.endedAt)} · ${fmtElapsed(tab.endedAt - tab.startedAt)}`;
     banner.appendChild(timingSpan);
   }
-  const summaryCard = buildSummaryCard(tab?._turnSummaries || [], msg.reason);
+  const summaryCard = buildSummaryCard(tab?._turnSummaries || [], msg.reason, tab?.promptInfo);
   if (summaryCard && tab && tab._nodes.length > 0) {
     tab._nodes.splice(1, 0, summaryCard);
     tab._nodes[0].insertAdjacentElement('afterend', summaryCard);
@@ -1113,6 +1168,23 @@ btnResume.addEventListener('click', () => {
     return;
   }
   doResume();
+});
+
+btnEndSession.addEventListener('click', async () => {
+  btnEndSession.disabled = true;
+  btnEndSession.textContent = 'Ending…';
+  const tab = activeTab();
+  const sid = tab?.sessionId || '';
+  let res;
+  try {
+    res = await fetch(`/api/session/end?session_id=${encodeURIComponent(sid)}`, { method: 'POST' });
+  } finally {
+    btnEndSession.disabled = false;
+    btnEndSession.textContent = 'End Session';
+  }
+  if (!res.ok) return;
+  btnResume.classList.add('hidden');
+  btnEndSession.classList.add('hidden');
 });
 
 function doResume() {
@@ -1487,6 +1559,9 @@ btnNewSession.addEventListener('click', async () => {
   _resetAttachments();
 
   _renderRolePills();
+
+  renderPromptStatusChips(document.getElementById('new-session-prompt-status'), cfg);
+
   document.getElementById('modal-new-session').classList.remove('hidden');
   document.getElementById('goal-input').focus();
 });
@@ -1571,6 +1646,7 @@ document.getElementById('btn-modal-start').addEventListener('click', async () =>
       <div class="flex items-center gap-3 min-w-0">
         <button id="collapse-toggle-${tab.id}" class="text-xs text-muted opacity-40 hover:opacity-80 transition shrink-0">− collapse all</button>
         <span id="goal-meta-models" class="text-xs text-muted opacity-40 truncate"></span>
+        <div id="goal-prompt-status-${tab.id}" class="flex items-center gap-1 text-xs shrink-0"></div>
       </div>
       <div id="goal-timing-${tab.id}" class="flex items-center gap-2 font-mono text-xs text-muted opacity-40 shrink-0">
         <span id="goal-started-${tab.id}"></span>
@@ -1772,6 +1848,74 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
     { key: 'sessions_dir',      label: 'Sessions dir' },
   ]) makeField(f, sessionGrid);
   form.appendChild(sessionGrid);
+
+  // ---- system prompts section ----
+  const promptsSep = document.createElement('div');
+  promptsSep.className = 'border-t border-white/10 pt-3';
+  promptsSep.innerHTML = '<p class="text-xs text-muted uppercase tracking-wider">System Prompts</p>';
+  form.appendChild(promptsSep);
+
+  let defaultPrompts = { producer: '', critic: '' };
+  try {
+    const dpRes = await fetch('/api/default-prompts');
+    if (dpRes.ok) defaultPrompts = await dpRes.json();
+  } catch (_) {}
+
+  function makePromptCol(roleKey, roleLabel, colorClass) {
+    const col = document.createElement('div');
+    col.className = 'flex-1 flex flex-col gap-2';
+
+    const header = document.createElement('p');
+    header.className = `text-xs ${colorClass} uppercase tracking-wider font-bold`;
+    header.textContent = roleLabel;
+    col.appendChild(header);
+
+    const showBtn = document.createElement('button');
+    showBtn.type = 'button';
+    showBtn.className = 'text-xs text-muted underline hover:text-user self-start';
+    showBtn.textContent = 'Show default system prompt';
+    const defaultBox = document.createElement('pre');
+    defaultBox.className = 'hidden text-xs text-muted whitespace-pre-wrap bg-black/20 rounded p-2 max-h-40 overflow-y-auto';
+    defaultBox.textContent = defaultPrompts[roleKey] || '';
+    showBtn.addEventListener('click', () => {
+      const hidden = defaultBox.classList.toggle('hidden');
+      showBtn.textContent = hidden ? 'Show default system prompt' : 'Hide default system prompt';
+    });
+    col.appendChild(showBtn);
+    col.appendChild(defaultBox);
+
+    const label = document.createElement('label');
+    label.className = 'flex flex-col gap-1 text-xs text-muted';
+    label.textContent = 'Add to system prompt (persists until removed)';
+    const textarea = document.createElement('textarea');
+    textarea.rows = 4;
+    textarea.name = `${roleKey}_user_prompt`;
+    textarea.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none text-xs';
+    textarea.value = cfg[`${roleKey}_user_prompt`] || '';
+    textarea.placeholder = 'Optional — additional instructions layered on top of the default prompt above';
+    label.appendChild(textarea);
+    col.appendChild(label);
+
+    const disableWrapper = document.createElement('label');
+    disableWrapper.className = 'flex items-center gap-2 text-xs text-muted mt-1';
+    const disableCheck = document.createElement('input');
+    disableCheck.type = 'checkbox';
+    disableCheck.name = `${roleKey}_system_prompt_disabled`;
+    disableCheck.className = 'w-4 h-4 accent-claude';
+    disableCheck.checked = !!cfg[`${roleKey}_system_prompt_disabled`];
+    disableWrapper.appendChild(disableCheck);
+    disableWrapper.appendChild(document.createTextNode(
+      `Disable default ${roleLabel} System prompt. Do not do this!`));
+    col.appendChild(disableWrapper);
+
+    return col;
+  }
+
+  const promptsRow = document.createElement('div');
+  promptsRow.className = 'flex gap-4';
+  promptsRow.appendChild(makePromptCol('producer', 'Producer', 'text-claude'));
+  promptsRow.appendChild(makePromptCol('critic', 'Critique', 'text-codex'));
+  form.appendChild(promptsRow);
 
   // ---- MCP section ----
   const mcpSep = document.createElement('div');
@@ -2079,6 +2223,7 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
   let _codexModel  = '';
   let _roundLimit  = null;
   let _startedAt   = null;
+  let _promptInfo  = null;
   let goalCard = null; // hoisted so session_end can update it
   let summaryPlaceholder = null; // hoisted so session_end can populate it
   const _reconTurnSummaries = [];
@@ -2094,6 +2239,12 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
       _codexModel  = ev.payload?.codex_model  || '';
       _roundLimit  = ev.payload?.round_limit  ?? null;
       _startedAt   = ev.payload?.started_at ? new Date(ev.payload.started_at) : null;
+      _promptInfo  = {
+        producer_prompt_disabled: !!ev.payload?.producer_prompt_disabled,
+        critic_prompt_disabled: !!ev.payload?.critic_prompt_disabled,
+        producer_user_prompt: ev.payload?.producer_user_prompt || '',
+        critic_user_prompt: ev.payload?.critic_user_prompt || '',
+      };
       const _reconClaudeRole = ev.payload?.claude_role || 'producer';
       const _reconProducerModel = _reconClaudeRole === 'producer' ? _claudeModel : _codexModel;
       const _reconCritiqueModel = _reconClaudeRole === 'producer' ? _codexModel : _claudeModel;
@@ -2116,6 +2267,7 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
           <div class="flex items-center gap-3 min-w-0">
             <button id="collapse-toggle-recon" class="text-xs text-muted opacity-40 hover:opacity-80 transition shrink-0">− collapse all</button>
             ${metaModels ? `<span class="text-xs text-muted opacity-40 truncate">${escHtml(metaModels)}</span>` : '<span></span>'}
+            <div id="recon-goal-prompt-status" class="flex items-center gap-1 text-xs shrink-0"></div>
           </div>
           <div class="flex items-center gap-2 font-mono text-xs text-muted opacity-40 shrink-0" id="recon-goal-timing">
             ${_startedAt ? `<span>started ${fmtTime(_startedAt)}</span>` : ''}
@@ -2123,6 +2275,7 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
         </div>
       `;
       appendFn(goalCard);
+      renderPromptStatusChips(goalCard.querySelector('#recon-goal-prompt-status'), _promptInfo);
       summaryPlaceholder = document.createElement('div');
       appendFn(summaryPlaceholder); // holds position 1 (after goal card); populated at session_end
 
@@ -2311,7 +2464,7 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
         timingSpan.textContent = `started ${fmtTime(_startedAt)} · ended ${fmtTime(endedAt)} · ${fmtElapsed(endedAt - _startedAt)}`;
         banner.appendChild(timingSpan);
       }
-      const reconSummaryCard = buildSummaryCard(_reconTurnSummaries, reason);
+      const reconSummaryCard = buildSummaryCard(_reconTurnSummaries, reason, _promptInfo);
       if (reconSummaryCard && summaryPlaceholder) {
         summaryPlaceholder.className = reconSummaryCard.className;
         while (reconSummaryCard.firstChild) summaryPlaceholder.appendChild(reconSummaryCard.firstChild);

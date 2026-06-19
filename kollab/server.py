@@ -29,6 +29,8 @@ from .attachments import (
 )
 from .config import Config, MODEL_ALIASES, load_config, save_config, validate_config, next_session_number
 from .ace import Session, SessionOverrides
+from .prompts import system_critic, system_producer
+from .transcript import TranscriptLog
 
 app = FastAPI(title="kollab")
 
@@ -44,6 +46,7 @@ _ws_clients: list[WebSocket] = []
 _LOG_PATH = Path("~/.kollab/kollab.log").expanduser()
 _file_handler: logging.FileHandler | None = None
 _kollab_logger = logging.getLogger("kollab")
+log = logging.getLogger("kollab.server")
 
 
 def _apply_logging(cfg: Config) -> None:
@@ -81,6 +84,40 @@ _apply_logging(_cfg)
 
 # Clean up stale staging dirs from previous runs
 cleanup_stale_staging()
+
+
+def _reconcile_orphaned_sessions(cfg: Config) -> None:
+    """Mark sessions left without a terminal session_end (because the server
+    was shut down or crashed while a session was running or halted) as
+    halted, so they surface correctly in history instead of staying open
+    forever with no end state."""
+    sessions_dir = Path(cfg.sessions_dir)
+    if not sessions_dir.exists():
+        return
+    for path in sessions_dir.glob("*.jsonl"):
+        try:
+            events = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+        except Exception as exc:
+            log.warning("could not parse session file %s during orphan reconciliation: %s", path, exc)
+            continue
+        if not events or not any(ev.get("kind") == "session_start" for ev in events):
+            continue
+        if any(ev.get("kind") == "session_end" for ev in events):
+            continue
+        last_round = 0
+        for ev in events:
+            if "round" in ev:
+                last_round = ev["round"]
+        with TranscriptLog(path.stem, sessions_dir) as transcript:
+            transcript.append({
+                "kind": "session_end", "actor": "system", "role": "system",
+                "round": last_round,
+                "payload": {"reason": "halted",
+                            "detail": "Session was orphaned by a server shutdown/restart."},
+            })
+
+
+_reconcile_orphaned_sessions(_cfg)
 
 
 # ------------------------------------------------------------------ auth
@@ -123,6 +160,15 @@ async def index() -> FileResponse:
 @app.get("/api/config", dependencies=[Depends(require_api_key)])
 async def get_config() -> dict:
     return _cfg.model_dump()
+
+
+@app.get("/api/default-prompts", dependencies=[Depends(require_api_key)])
+async def get_default_prompts() -> dict:
+    """Return the built-in producer/critic system prompts, rendered with Claude/Codex names."""
+    return {
+        "producer": system_producer("Claude", "Codex"),
+        "critic": system_critic("Codex", "Claude"),
+    }
 
 
 class ConfigUpdate(BaseModel):
@@ -230,6 +276,20 @@ async def stop_session(session_id: str) -> dict:
     if session is None:
         raise HTTPException(status_code=404, detail="No session with that ID.")
     session.stop()
+    return {"ok": True}
+
+
+@app.post("/api/session/end", dependencies=[Depends(require_api_key)])
+async def end_session(session_id: str) -> dict:
+    """Terminate a halted session immediately instead of waiting for auto-expiry."""
+    session = _sessions.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="No session with that ID.")
+    if session.state != "halted":
+        raise HTTPException(status_code=400, detail="Session is not halted.")
+    await session.end_now()
+    _sessions.pop(session_id, None)
+    _session_tasks.pop(session_id, None)
     return {"ok": True}
 
 
