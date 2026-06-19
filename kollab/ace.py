@@ -19,7 +19,7 @@ from .attachments import (
 )
 from .config import Config
 from .prompts import (
-    build_first_turn_prompt, build_turn_prompt,
+    build_first_turn_prompt, build_turn_prompt, compose_system_prompt,
     system_critic, system_producer,
 )
 from .transcript import TranscriptLog
@@ -87,11 +87,19 @@ class Session:
         self.claude_role: str = ov.claude_role if ov.claude_role in ("producer", "critic") else "producer"
         codex_role: str = "critic" if self.claude_role == "producer" else "producer"
         if self.claude_role == "producer":
-            self._claude_system: str = system_producer("Claude", "Codex")
-            self._codex_system: str = system_critic("Codex", "Claude")
+            self._claude_system: str = compose_system_prompt(
+                system_producer("Claude", "Codex"), cfg.producer_user_prompt, cfg.producer_system_prompt_disabled)
+            self._codex_system: str = compose_system_prompt(
+                system_critic("Codex", "Claude"), cfg.critic_user_prompt, cfg.critic_system_prompt_disabled)
         else:
-            self._claude_system = system_critic("Claude", "Codex")
-            self._codex_system = system_producer("Codex", "Claude")
+            self._claude_system = compose_system_prompt(
+                system_critic("Claude", "Codex"), cfg.critic_user_prompt, cfg.critic_system_prompt_disabled)
+            self._codex_system = compose_system_prompt(
+                system_producer("Codex", "Claude"), cfg.producer_user_prompt, cfg.producer_system_prompt_disabled)
+        self.producer_prompt_disabled: bool = cfg.producer_system_prompt_disabled
+        self.critic_prompt_disabled: bool = cfg.critic_system_prompt_disabled
+        self.producer_user_prompt: str = cfg.producer_user_prompt
+        self.critic_user_prompt: str = cfg.critic_user_prompt
         self._claude = ClaudeAgent(
             role=self.claude_role,
             binary=cfg.claude_binary,
@@ -154,6 +162,10 @@ class Session:
                        "claude_role": self.claude_role,
                        "started_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                        "attachments": [a.to_dict() for a in self._attachments],
+                       "producer_prompt_disabled": self.producer_prompt_disabled,
+                       "critic_prompt_disabled": self.critic_prompt_disabled,
+                       "producer_user_prompt": self.producer_user_prompt,
+                       "critic_user_prompt": self.critic_user_prompt,
                    }})
         self._broadcast({"type": "state", "state": "fanning_out", "round": 0,
                          "session_number": self.session_number,
@@ -161,7 +173,11 @@ class Session:
                          "claude_model": self.claude_model,
                          "codex_model": self.codex_model,
                          "claude_role": self.claude_role,
-                         "round_limit": self._round_limit})
+                         "round_limit": self._round_limit,
+                         "producer_prompt_disabled": self.producer_prompt_disabled,
+                         "critic_prompt_disabled": self.critic_prompt_disabled,
+                         "producer_user_prompt": self.producer_user_prompt,
+                         "critic_user_prompt": self.critic_user_prompt})
         self.state = "fanning_out"
         await asyncio.gather(
             self._claude.start(self._claude_system, goal),
@@ -444,6 +460,24 @@ class Session:
                    "payload": {"reason": "expired",
                                "detail": f"Session auto-expired after {seconds}s halt"}})
         self._broadcast({"type": "session_done", "reason": "expired",
+                         "session_id": self.id, "session_number": self.session_number,
+                         "round_limit": self._round_limit})
+        await self.close()
+
+    async def end_now(self) -> None:
+        """Explicitly terminate a halted session without waiting for auto-expiry."""
+        if self.state != "halted":
+            return
+        log.info("session_end_now id=%s", self.id)
+        if self._halt_timer_task and not self._halt_timer_task.done():
+            self._halt_timer_task.cancel()
+            self._halt_timer_task = None
+        self._done_reason = "halted"
+        self.state = "done"
+        self._log({"kind": "session_end", "actor": "system", "role": "system",
+                   "round": self.round,
+                   "payload": {"reason": "halted", "detail": "Session ended by user."}})
+        self._broadcast({"type": "session_done", "reason": "halted",
                          "session_id": self.id, "session_number": self.session_number,
                          "round_limit": self._round_limit})
         await self.close()

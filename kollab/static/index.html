@@ -153,6 +153,9 @@
           class="px-3 py-1.5 rounded bg-verdictDisagree/80 hover:bg-verdictDisagree transition hidden">Stop</button>
         <button id="btn-resume"
           class="px-3 py-1.5 rounded bg-verdictAgree/80 hover:bg-verdictAgree transition hidden">Resume</button>
+        <button id="btn-end-session"
+          class="px-3 py-1.5 rounded border border-white/20 text-muted hover:text-user hover:border-white/40 transition hidden"
+          data-tooltip="End this halted session permanently">End Session</button>
       </footer>
 
     </div>
@@ -161,9 +164,10 @@
   <!-- new session modal -->
   <div id="modal-new-session"
     class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50">
-    <div class="bg-panel border border-white/20 rounded-lg p-6 w-full max-w-3xl flex flex-col gap-4 overflow-y-auto max-h-[90vh]">
+    <div class="bg-panel border border-white/20 rounded-lg p-6 w-full max-w-4xl flex flex-col gap-4 overflow-y-auto max-h-[90vh]">
       <div class="flex items-baseline justify-between">
         <h2 class="text-base font-bold">New Session</h2>
+        <div id="new-session-prompt-status" class="flex items-center gap-2 text-xs"></div>
         <span class="text-xs text-muted opacity-40">Esc to cancel</span>
       </div>
 
@@ -295,7 +299,7 @@
   <!-- configure modal -->
   <div id="modal-configure"
     class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50">
-    <div class="bg-panel border border-white/20 rounded-lg p-6 w-full max-w-5xl flex flex-col gap-4 overflow-y-auto max-h-[90vh]">
+    <div class="bg-panel border border-white/20 rounded-lg p-6 w-full max-w-6xl flex flex-col gap-4 overflow-y-auto max-h-[90vh]">
       <div class="flex items-baseline justify-between">
         <h2 class="text-base font-bold">Configure</h2>
         <span class="text-xs text-muted opacity-40">Esc to cancel</span>

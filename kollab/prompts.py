@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import logging
+
+log = logging.getLogger("kollab.prompts")
+
 
 def system_producer(self_name: str, peer_name: str) -> str:
     return (
@@ -13,6 +17,7 @@ def system_producer(self_name: str, peer_name: str) -> str:
         f"- Push back on {peer_name} when you disagree on substance. Concede when their critique is "
         'correct — saying "you\'re right" is not weakness.\n'
         "- Cite specifics. Vague disagreement is unhelpful.\n"
+        "- Do not over-engineer unnecessarily. Prefer the simplest design that satisfies the goal.\n"
         "- Each of your responses must end with a verdict trailer on its own line: "
         "`<verdict>AGREE</verdict>`, `<verdict>DISAGREE</verdict>`, or `<verdict>REVISED</verdict>`.\n"
         f"  - `AGREE` = {peer_name}'s last critique is correct; you accept it as-is.\n"
@@ -37,6 +42,7 @@ def system_critic(self_name: str, peer_name: str) -> str:
         f'- Concede when {peer_name} is right. "Your defense is correct, withdrawing my objection" is '
         "the right response sometimes.\n"
         "- Cite specifics — point to lines, claims, decisions.\n"
+        "- Make sure the solution is not over-engineered. Flag unnecessary complexity as a flaw.\n"
         "- Each of your responses must end with a verdict trailer on its own line: "
         "`<verdict>AGREE</verdict>`, `<verdict>DISAGREE</verdict>`, or `<verdict>REVISED</verdict>`.\n"
         f"  - `AGREE` = {peer_name}'s last response satisfies your critique; the issue is resolved.\n"
@@ -47,6 +53,24 @@ def system_critic(self_name: str, peer_name: str) -> str:
         "- The human is observing this dialogue but is not directly participating per turn. "
         "They may interrupt at any time."
     )
+
+def compose_system_prompt(base: str, user_prompt: str, disabled: bool) -> str:
+    """Combine the built-in role prompt with an optional user-added addendum.
+
+    `disabled` drops `base` entirely (the user took on the risk of running
+    without role instructions); `user_prompt` is always layered on top if set.
+    """
+    parts = [] if disabled else [base]
+    if user_prompt.strip():
+        parts.append(user_prompt.strip())
+    if not parts:
+        log.warning(
+            "compose_system_prompt: built-in prompt disabled and no user_prompt set — "
+            "agent will run with an empty system prompt, including no <verdict>/<tldr> "
+            "trailer instructions."
+        )
+    return "\n\n".join(parts)
+
 
 TURN_PROMPT_TEMPLATE = """\
 [Round {round}]{user_injection}

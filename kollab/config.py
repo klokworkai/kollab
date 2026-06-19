@@ -54,6 +54,12 @@ class Config(BaseModel):
     codex_model: str = "gpt-5.4"
     codex_workdir: str = "~/.kollab/workspace/codex"
 
+    # System prompts — user-added text layered on top of the built-in role prompts
+    producer_user_prompt: str = ""
+    critic_user_prompt: str = ""
+    producer_system_prompt_disabled: bool = False
+    critic_system_prompt_disabled: bool = False
+
     round_limit: int = 8
     max_tokens_per_turn: int | None = None
     max_tokens_per_session: int | None = None
