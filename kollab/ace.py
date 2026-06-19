@@ -480,6 +480,10 @@ class Session:
         self._broadcast({"type": "session_done", "reason": "halted",
                          "session_id": self.id, "session_number": self.session_number,
                          "round_limit": self._round_limit})
+        await self._emit("session_end", {
+            "round": self.round,
+            "end_reason": "halted",
+        })
         await self.close()
 
     async def resume(self) -> None:

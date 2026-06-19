@@ -1175,9 +1175,13 @@ btnEndSession.addEventListener('click', async () => {
   btnEndSession.textContent = 'Ending…';
   const tab = activeTab();
   const sid = tab?.sessionId || '';
-  const res = await fetch(`/api/session/end?session_id=${encodeURIComponent(sid)}`, { method: 'POST' });
-  btnEndSession.disabled = false;
-  btnEndSession.textContent = 'End Session';
+  let res;
+  try {
+    res = await fetch(`/api/session/end?session_id=${encodeURIComponent(sid)}`, { method: 'POST' });
+  } finally {
+    btnEndSession.disabled = false;
+    btnEndSession.textContent = 'End Session';
+  }
   if (!res.ok) return;
   btnResume.classList.add('hidden');
   btnEndSession.classList.add('hidden');

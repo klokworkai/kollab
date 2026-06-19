@@ -46,6 +46,7 @@ _ws_clients: list[WebSocket] = []
 _LOG_PATH = Path("~/.kollab/kollab.log").expanduser()
 _file_handler: logging.FileHandler | None = None
 _kollab_logger = logging.getLogger("kollab")
+log = logging.getLogger("kollab.server")
 
 
 def _apply_logging(cfg: Config) -> None:
@@ -96,7 +97,8 @@ def _reconcile_orphaned_sessions(cfg: Config) -> None:
     for path in sessions_dir.glob("*.jsonl"):
         try:
             events = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-        except Exception:
+        except Exception as exc:
+            log.warning("could not parse session file %s during orphan reconciliation: %s", path, exc)
             continue
         if not events or not any(ev.get("kind") == "session_start" for ev in events):
             continue
@@ -106,14 +108,13 @@ def _reconcile_orphaned_sessions(cfg: Config) -> None:
         for ev in events:
             if "round" in ev:
                 last_round = ev["round"]
-        transcript = TranscriptLog(path.stem, sessions_dir)
-        transcript.append({
-            "kind": "session_end", "actor": "system", "role": "system",
-            "round": last_round,
-            "payload": {"reason": "halted",
-                        "detail": "Session was orphaned by a server shutdown/restart."},
-        })
-        transcript.close()
+        with TranscriptLog(path.stem, sessions_dir) as transcript:
+            transcript.append({
+                "kind": "session_end", "actor": "system", "role": "system",
+                "round": last_round,
+                "payload": {"reason": "halted",
+                            "detail": "Session was orphaned by a server shutdown/restart."},
+            })
 
 
 _reconcile_orphaned_sessions(_cfg)
@@ -163,6 +164,7 @@ async def get_config() -> dict:
 
 @app.get("/api/default-prompts", dependencies=[Depends(require_api_key)])
 async def get_default_prompts() -> dict:
+    """Return the built-in producer/critic system prompts, rendered with Claude/Codex names."""
     return {
         "producer": system_producer("Claude", "Codex"),
         "critic": system_critic("Codex", "Claude"),
@@ -279,9 +281,12 @@ async def stop_session(session_id: str) -> dict:
 
 @app.post("/api/session/end", dependencies=[Depends(require_api_key)])
 async def end_session(session_id: str) -> dict:
+    """Terminate a halted session immediately instead of waiting for auto-expiry."""
     session = _sessions.get(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="No session with that ID.")
+    if session.state != "halted":
+        raise HTTPException(status_code=400, detail="Session is not halted.")
     await session.end_now()
     _sessions.pop(session_id, None)
     _session_tasks.pop(session_id, None)
