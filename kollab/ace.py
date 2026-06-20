@@ -81,7 +81,9 @@ class Session:
         self._cfg = cfg
         self._broadcast = broadcast
         self._round_limit: int = ov.round_limit if ov.round_limit is not None else cfg.round_limit
-        self._max_tokens_per_session: int | None = ov.max_tokens_per_session
+        self._max_tokens_per_session: int | None = (
+            ov.max_tokens_per_session if ov.max_tokens_per_session is not None else cfg.max_tokens_per_session
+        )
         self._session_tokens: int = 0
         self.claude_role: str = ov.claude_role if ov.claude_role in ("producer", "critic") else "producer"
         codex_role: str = "critic" if self.claude_role == "producer" else "producer"
