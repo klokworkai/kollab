@@ -1,5 +1,7 @@
 # kollab
 
+> 🧪 **v1.1.0-beta** — kollab is in active development and has not been extensively tested. Bug reports and feedback welcome — open an [issue](https://github.com/klokworkai/kollab/issues) or reach out at [kollab@klokwork.ai](mailto:kollab@klokwork.ai).
+
 **koll♠b** — a structured validation and correction layer for AI-generated proposals, with a full audit trail.
 
 koll♠b runs two AI coding agents — **Claude** (Anthropic) and **Codex** (OpenAI) — through a critique-revision loop on a shared engineering objective. The roles are configurable: either model can be the producer or the critic. Every critique, revision, and concession is streamed live to a browser UI and logged to disk. You don't just get an answer — you get a validated artifact and the complete record of how it got there.
@@ -191,7 +193,9 @@ See [ROADMAP.md](ROADMAP.md).
 
 ## Status
 
-v1.0.0 — feature complete. Core validation loop, configurable role assignment, halt/resume, directive injection, file attachments, session history, streaming, export, and readonly replay are complete. REST API and webhook layer are implemented but not end-to-end validated — see disclaimer above.
+v1.1.0-beta. Core validation loop, configurable role assignment, halt/resume, directive injection, user profile context, file attachments, session history, streaming, export, and readonly replay are complete. REST API and webhook layer are implemented but not end-to-end validated — see disclaimer above.
+
+This is a beta release. The feature set is stable but has not been extensively tested end-to-end, particularly the latest additions (user profile injection, token-limit history pill, turn anomaly detection, Codex `--full-auto` sandboxing). If something breaks, please [open an issue](https://github.com/klokworkai/kollab/issues).
 
 ---
 

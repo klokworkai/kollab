@@ -11,6 +11,18 @@ Items are listed in rough priority order. Nothing here is a commitment or a time
 ### Core validation loop
 Two-agent critique-revision loop with configurable role assignment, goal fan-out, halt/resume, directive injection, verdict protocol, streaming UI, JSONL audit trail, readonly session replay, and markdown export.
 
+### User profile context
+`user_profile` config field injected as a labeled `## User Profile` block into both agents' system prompts. Editable textarea in the Configure modal.
+
+### Turn anomaly detection
+Completed turns with empty text or a missing verdict trailer are flagged with a visible warning on the turn card instead of a blank badge or stuck placeholder.
+
+### Token budget improvements
+Session token cap displayed on the goal card when `max_tokens_per_session` is set. `token_limit` history pill and filter swatch added. `max_tokens_per_turn` removed — it was never enforceable and produced broken turns.
+
+### Codex sandboxing
+`codex exec` now runs with `--full-auto` plus `--add-dir` per configured path, replacing `--dangerously-bypass-approvals-and-sandbox`. Write access scoped to `codex_workdir` and configured paths.
+
 ### File attachments
 Attach files to a session at start — injected into both agents' context via the prompt layer.
 
