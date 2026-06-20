@@ -4,6 +4,8 @@ All notable changes to koll♠b are documented here. Format follows [Keep a Chan
 
 ## [Unreleased]
 
+## [1.1.0-beta] — 2026-06-20
+
 ### Added
 - User profile context — `user_profile` config field, injected as a labeled `## User Profile` block ahead of role instructions in both agents' system prompts; editable textarea in the Configure modal (2000 char max)
 - Turn anomaly detection — a completed turn with empty text and/or a missing verdict trailer is flagged and surfaced as a visible warning on the turn card, instead of a blank badge or stuck "…" placeholder
