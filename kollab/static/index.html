@@ -23,6 +23,7 @@
             verdictRevised: '#d4a017',
             verdictAgree:   '#4caf50',
             verdictDisagree:'#cf6679',
+            verdictInfo:    '#42a5f5',
           }
         }
       }
@@ -83,6 +84,9 @@
             <button data-filter="halted" data-tooltip="Filter: Halted / Expired"
               class="history-filter w-3.5 h-3.5 rounded-sm opacity-30 hover:opacity-80 transition"
               style="background:#cf6679"></button>
+            <button data-filter="token_limit" data-tooltip="Filter: Token limit"
+              class="history-filter w-3.5 h-3.5 rounded-sm opacity-30 hover:opacity-80 transition"
+              style="background:#42a5f5"></button>
           </div>
           <span id="history-count" class="opacity-50 tabular-nums normal-case tracking-normal"></span>
         </div>
@@ -215,12 +219,6 @@
           <label class="flex flex-col gap-1 text-xs text-muted flex-1">
             Round limit
             <input id="override-round-limit" type="number" min="1"
-              class="bg-userPanel border border-white/20 rounded px-2 py-1.5 text-user
-                     placeholder-muted focus:outline-none focus:border-white/40" />
-          </label>
-          <label class="flex flex-col gap-1 text-xs text-muted flex-1">
-            Max tokens / turn
-            <input id="override-tokens-turn" type="number" min="1" placeholder="default — no limit"
               class="bg-userPanel border border-white/20 rounded px-2 py-1.5 text-user
                      placeholder-muted focus:outline-none focus:border-white/40" />
           </label>

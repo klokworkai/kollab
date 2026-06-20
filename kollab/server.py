@@ -196,7 +196,6 @@ async def post_config(body: ConfigUpdate) -> dict:
 class StartSessionBody(BaseModel):
     goal: str
     round_limit: int | None = None
-    max_tokens_per_turn: int | None = None
     max_tokens_per_session: int | None = None
     claude_model: str | None = None
     codex_model: str | None = None
@@ -251,7 +250,6 @@ async def start_session(body: StartSessionBody) -> dict:
 
     overrides = SessionOverrides(
         round_limit=body.round_limit,
-        max_tokens_per_turn=body.max_tokens_per_turn,
         max_tokens_per_session=body.max_tokens_per_session,
         claude_model=_resolve(body.claude_model),
         codex_model=_resolve(body.codex_model),

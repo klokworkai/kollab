@@ -43,7 +43,6 @@ BroadcastFn = Callable[[dict], None]
 @dataclass
 class SessionOverrides:
     round_limit: int | None = None
-    max_tokens_per_turn: int | None = None
     max_tokens_per_session: int | None = None
     claude_model: str | None = None
     codex_model: str | None = None
@@ -61,6 +60,7 @@ class Turn:
     reasoning: str = ""
     summary: str = ""
     verdict: Verdict | None = None
+    anomaly: str | None = None
     interrupted: bool = False
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     ended_at: datetime | None = None
@@ -81,7 +81,6 @@ class Session:
         self._cfg = cfg
         self._broadcast = broadcast
         self._round_limit: int = ov.round_limit if ov.round_limit is not None else cfg.round_limit
-        self._max_tokens_per_turn: int | None = ov.max_tokens_per_turn
         self._max_tokens_per_session: int | None = ov.max_tokens_per_session
         self._session_tokens: int = 0
         self.claude_role: str = ov.claude_role if ov.claude_role in ("producer", "critic") else "producer"
@@ -163,6 +162,7 @@ class Session:
                        "claude_model": self.claude_model,
                        "codex_model": self.codex_model,
                        "round_limit": self._round_limit,
+                       "max_tokens_per_session": self._max_tokens_per_session,
                        "claude_role": self.claude_role,
                        "started_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                        "attachments": [a.to_dict() for a in self._attachments],
@@ -178,6 +178,7 @@ class Session:
                          "codex_model": self.codex_model,
                          "claude_role": self.claude_role,
                          "round_limit": self._round_limit,
+                         "max_tokens_per_session": self._max_tokens_per_session,
                          "producer_prompt_disabled": self.producer_prompt_disabled,
                          "critic_prompt_disabled": self.critic_prompt_disabled,
                          "producer_user_prompt": self.producer_user_prompt,
@@ -252,9 +253,6 @@ class Session:
                 user_injection=user_injection,
                 resume_after_halt=resume_after_halt,
             )
-
-        if self._max_tokens_per_turn:
-            prompt += f"\n[Keep this response under {self._max_tokens_per_turn} tokens.]"
 
         # ------ attachment delivery (first turn per actor only) ------
         delivery_images: list = []
@@ -350,6 +348,11 @@ class Session:
         duration_ms = int(
             (turn.ended_at - turn.started_at).total_seconds() * 1000
         )
+
+        turn.anomaly = _detect_anomaly(turn.text, turn.verdict, is_first_turn=last_peer_turn is None)
+        if turn.anomaly:
+            log.warning("turn_anomaly %s actor=%s reason=%r", turn_id, actor, turn.anomaly)
+
         log.info("turn_end %s actor=%s verdict=%s duration_ms=%d tokens_in=%d tokens_out=%d",
                  turn_id, actor, turn.verdict, duration_ms, turn_tokens_in, turn_tokens_out)
         if is_claude:
@@ -361,11 +364,13 @@ class Session:
                    "role": role, "round": self.round,
                    "payload": {"text": turn.text, "reasoning": turn.reasoning,
                                 "verdict": turn.verdict, "duration_ms": duration_ms,
-                                "summary": turn.summary, "thread_id": turn_thread_id}})
+                                "summary": turn.summary, "thread_id": turn_thread_id,
+                                "anomaly": turn.anomaly}})
         self._broadcast({"type": "turn_end", "turn_id": turn_id,
                          "actor": actor,
                          "verdict": turn.verdict, "duration_ms": duration_ms,
                          "text": turn.text, "summary": turn.summary,
+                         "anomaly": turn.anomaly,
                          "session_id": self.id})
 
         if self.state == "halted":
@@ -566,6 +571,19 @@ class Session:
 def _make_session_id() -> str:
     import uuid
     return f"sess_{uuid.uuid4().hex[:8]}"
+
+
+def _detect_anomaly(text: str, verdict: Verdict | None, is_first_turn: bool) -> str | None:
+    """Flag a completed turn whose output is empty and/or missing a verdict
+    trailer — a sign the agent's response was degenerate (e.g. starved by an
+    unrealistic token request), not a normal outcome. C-1 never carries a
+    verdict by design, so a missing verdict there is not anomalous."""
+    reasons: list[str] = []
+    if not text.strip():
+        reasons.append("empty response text")
+    if verdict is None and not is_first_turn:
+        reasons.append("no verdict trailer")
+    return ", ".join(reasons) if reasons else None
 
 
 def _parse_verdict(text: str) -> Verdict | None:

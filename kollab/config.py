@@ -64,7 +64,6 @@ class Config(BaseModel):
     user_profile: str = ""
 
     round_limit: int = 8
-    max_tokens_per_turn: int | None = None
     max_tokens_per_session: int | None = None
     port: int = 8765
     sessions_dir: str = "~/.kollab/sessions"

@@ -2,6 +2,21 @@
 
 All notable changes to koll♠b are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+- User profile context — `user_profile` config field, injected as a labeled `## User Profile` block ahead of role instructions in both agents' system prompts; editable textarea in the Configure modal (2000 char max)
+- Turn anomaly detection — a completed turn with empty text and/or a missing verdict trailer is flagged and surfaced as a visible warning on the turn card, instead of a blank badge or stuck "…" placeholder
+- Session token cap shown on the goal card (`token cap: N`) when `max_tokens_per_session` is set for that session — live and in reopened history
+- `token_limit` filter swatch and history pill (previously fell back to unstyled raw text)
+
+### Changed
+- Codex sandboxing — `codex exec` now runs with `--full-auto` plus `--add-dir <path>` per `mcp_filesystem_paths` entry, replacing `--dangerously-bypass-approvals-and-sandbox`. Write access is scoped to `codex_workdir` + configured paths; read access cannot be fully restricted by kollab (disclaimer shown in Configure modal)
+- History pane `halted`/`expired` pills recolored to match their red filter swatch (previously gray)
+
+### Removed
+- `max_tokens_per_turn` — never enforceable (neither the Claude Agent SDK nor `codex exec` expose a hard per-call token cap); it was only a soft prompt-text hint that produced degenerate, broken turns at low values. `max_tokens_per_session` (a real, measured budget) is unaffected.
+
 ## [1.0.0] — 2026-06
 
 ### Added

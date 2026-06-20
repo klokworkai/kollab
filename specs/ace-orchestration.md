@@ -380,4 +380,4 @@ ACE reads the following fields from `Config` at session construction. Changes to
 
 Per-session overrides also accept `claude_role` (`"producer"` | `"critic"`) — determines which role Claude takes and assigns the inverse to Codex. Defaults to `"producer"` if not specified.
 
-Per-session overrides (`SessionOverrides`) take precedence over config fields for `round_limit`, `claude_model`, `codex_model`, `max_tokens_per_turn`, and `max_tokens_per_session`.
+Per-session overrides (`SessionOverrides`) take precedence over config fields for `round_limit`, `claude_model`, `codex_model`, and `max_tokens_per_session`.
