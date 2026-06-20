@@ -125,7 +125,6 @@ Returns current session state for polling. No request body.
   "round_limit": 6,
   "claude_model": "claude-sonnet-4-6",
   "codex_model": "gpt-5.4",
-  "max_tokens_per_turn": null,
   "max_tokens_per_session": null
 }
 ```

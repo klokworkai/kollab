@@ -813,7 +813,24 @@ function onTurnEnd(msg) {
     : document.getElementById(`body-${msg.turn_id}`);
   if (body) {
     body.classList.remove('thinking');
-    if (msg.text !== undefined) body.textContent = msg.text;
+    if (msg.text !== undefined) {
+      if (msg.text) {
+        body.textContent = msg.text;
+        body.classList.remove('italic', 'opacity-60');
+      } else {
+        body.textContent = '(empty response)';
+        body.classList.add('italic', 'opacity-60');
+      }
+    }
+  }
+  if (msg.anomaly) {
+    const cardRoot = card || document.getElementById(`turn-${msg.turn_id}`);
+    if (cardRoot && !cardRoot.querySelector('.kollab-anomaly')) {
+      const note = document.createElement('div');
+      note.className = 'kollab-anomaly text-xs text-verdictDisagree border-t border-verdictDisagree/30 pt-2 mt-1';
+      note.textContent = `⚠ Anomaly: ${msg.anomaly}`;
+      cardRoot.appendChild(note);
+    }
   }
   const summaryEl = card
     ? card.querySelector(`#summary-${msg.turn_id}`)
@@ -873,6 +890,7 @@ function onState(msg) {
       if (msg.claude_model) tab.claudeModel = msg.claude_model;
       if (msg.codex_model)  tab.codexModel  = msg.codex_model;
       if (msg.round_limit)  tab.roundLimit  = msg.round_limit;
+      if (msg.max_tokens_per_session) tab.maxTokensSession = msg.max_tokens_per_session;
       if (msg.claude_role)  tab.claudeRole  = msg.claude_role;
       tab.promptInfo = {
         producer_prompt_disabled: !!msg.producer_prompt_disabled,
@@ -889,7 +907,8 @@ function onState(msg) {
           const cr = msg.claude_role || 'producer';
           const producerModel = cr === 'producer' ? msg.claude_model : msg.codex_model;
           const critiqueModel = cr === 'producer' ? msg.codex_model : msg.claude_model;
-          goalMetaEl.textContent = `Producer: ${producerModel} · Critique: ${critiqueModel} · rounds: ${msg.round_limit ?? '?'}`;
+          const tokenCapPart = msg.max_tokens_per_session ? ` · token cap: ${msg.max_tokens_per_session}` : '';
+          goalMetaEl.textContent = `Producer: ${producerModel} · Critique: ${critiqueModel} · rounds: ${msg.round_limit ?? '?'}${tokenCapPart}`;
         }
         renderPromptStatusChips(document.getElementById(`goal-prompt-status-${tab.id}`), tab.promptInfo);
       }
@@ -1542,7 +1561,6 @@ btnNewSession.addEventListener('click', async () => {
   roundInput.placeholder = `default (${cfg.round_limit ?? 8})`;
   roundInput.value = '';
 
-  document.getElementById('override-tokens-turn').value = '';
   document.getElementById('override-tokens-session').value = '';
 
   // Load attachment limits from config
@@ -1617,9 +1635,6 @@ document.getElementById('btn-modal-start').addEventListener('click', async () =>
 
   const roundVal = parseInt(document.getElementById('override-round-limit').value, 10);
   if (!isNaN(roundVal) && roundVal > 0 && roundVal !== cfg.round_limit) body.round_limit = roundVal;
-
-  const tokensTurn = parseInt(document.getElementById('override-tokens-turn').value, 10);
-  if (!isNaN(tokensTurn) && tokensTurn > 0) body.max_tokens_per_turn = tokensTurn;
 
   const tokensSession = parseInt(document.getElementById('override-tokens-session').value, 10);
   if (!isNaN(tokensSession) && tokensSession > 0) body.max_tokens_per_session = tokensSession;
@@ -1833,6 +1848,35 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
   agentRow.appendChild(codexCol);
   form.appendChild(agentRow);
 
+  // ---- user profile section ----
+  const profileSep = document.createElement('div');
+  profileSep.className = 'border-t border-white/10 pt-3';
+  profileSep.innerHTML = '<p class="text-xs text-muted uppercase tracking-wider">User Profile</p>';
+  form.appendChild(profileSep);
+
+  const PROFILE_MAX_LEN = 2000;
+  const profileLabel = document.createElement('label');
+  profileLabel.className = 'flex flex-col gap-1 text-xs text-muted';
+  profileLabel.textContent = 'Tell both agents about yourself — role, experience, tech stack, expectations. Persists until changed or cleared.';
+  const profileTextarea = document.createElement('textarea');
+  profileTextarea.rows = 4;
+  profileTextarea.name = 'user_profile';
+  profileTextarea.maxLength = PROFILE_MAX_LEN;
+  profileTextarea.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none text-xs';
+  profileTextarea.value = cfg.user_profile || '';
+  profileTextarea.placeholder = "Senior backend engineer, 8 years experience, mostly Python and Go. Comfortable with distributed systems and async code; new to frontend/React. Working primarily in FastAPI/PostgreSQL stacks. Expect critiques to be specific and actionable, not just 'this could be better.'";
+  profileLabel.appendChild(profileTextarea);
+  form.appendChild(profileLabel);
+
+  const profileCounter = document.createElement('p');
+  profileCounter.className = 'text-xs text-muted text-right -mt-1';
+  const syncProfileCounter = () => {
+    profileCounter.textContent = `${profileTextarea.value.length} / ${PROFILE_MAX_LEN}`;
+  };
+  syncProfileCounter();
+  profileTextarea.addEventListener('input', syncProfileCounter);
+  form.appendChild(profileCounter);
+
   // ---- session settings grid ----
   const sessionSep = document.createElement('div');
   sessionSep.className = 'border-t border-white/10 pt-3';
@@ -1957,6 +2001,13 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
   mcpRow.appendChild(mcpLeft);
   mcpRow.appendChild(mcpRight);
   form.appendChild(mcpRow);
+
+  const codexFsWarning = document.createElement('p');
+  codexFsWarning.className = 'text-xs rounded px-3 py-2 border border-verdictRevised/40 bg-verdictRevised/10 text-verdictRevised';
+  codexFsWarning.textContent = 'kollab scopes Codex write access to the paths above via --add-dir. Read access ' +
+    'and internal apply_patch writes cannot be fully restricted by kollab — Codex may still read outside ' +
+    'these paths. See https://developers.openai.com/codex/permissions.';
+  form.appendChild(codexFsWarning);
 
   const githubSep = document.createElement('div');
   githubSep.className = 'border-t border-white/10 pt-3';
@@ -2096,8 +2147,14 @@ function renderHistoryList(sessions) {
     return;
   }
 
-  const pillStyles = { convergence: 'text-verdictAgree', round_limit: 'text-verdictRevised', halted: 'text-muted', expired: 'text-muted' };
-  const pillLabels = { convergence: '\u2713 converged', round_limit: '\u26a0 round limit', halted: '\u23f9 halted', expired: '\u23f3 expired' };
+  const pillStyles = {
+    convergence: 'text-verdictAgree', round_limit: 'text-verdictRevised',
+    token_limit: 'text-verdictInfo', halted: 'text-verdictDisagree', expired: 'text-verdictDisagree',
+  };
+  const pillLabels = {
+    convergence: '\u2713 converged', round_limit: '\u26a0 round limit',
+    token_limit: '\u26a0 token limit', halted: '\u23f9 halted', expired: '\u23f3 expired',
+  };
   const activeSessionId = activeTab()?.sessionId || null;
 
   for (const s of filtered) {
@@ -2222,6 +2279,7 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
   let _claudeModel = '';
   let _codexModel  = '';
   let _roundLimit  = null;
+  let _maxTokensSession = null;
   let _startedAt   = null;
   let _promptInfo  = null;
   let goalCard = null; // hoisted so session_end can update it
@@ -2238,6 +2296,7 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
       _claudeModel = ev.payload?.claude_model || '';
       _codexModel  = ev.payload?.codex_model  || '';
       _roundLimit  = ev.payload?.round_limit  ?? null;
+      _maxTokensSession = ev.payload?.max_tokens_per_session ?? null;
       _startedAt   = ev.payload?.started_at ? new Date(ev.payload.started_at) : null;
       _promptInfo  = {
         producer_prompt_disabled: !!ev.payload?.producer_prompt_disabled,
@@ -2248,8 +2307,9 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
       const _reconClaudeRole = ev.payload?.claude_role || 'producer';
       const _reconProducerModel = _reconClaudeRole === 'producer' ? _claudeModel : _codexModel;
       const _reconCritiqueModel = _reconClaudeRole === 'producer' ? _codexModel : _claudeModel;
+      const _reconTokenCapPart = _maxTokensSession ? ` · token cap: ${_maxTokensSession}` : '';
       const metaModels = (_claudeModel && _codexModel)
-        ? `Producer: ${_reconProducerModel} · Critique: ${_reconCritiqueModel} · rounds: ${_roundLimit ?? '?'}`
+        ? `Producer: ${_reconProducerModel} · Critique: ${_reconCritiqueModel} · rounds: ${_roundLimit ?? '?'}${_reconTokenCapPart}`
         : '';
       goalCard = document.createElement('div');
       goalCard.className = 'kollab-goal-card rounded-lg border border-white/10 bg-panel p-3 flex flex-col gap-1.5';
@@ -2334,7 +2394,10 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
       const body = card ? card.querySelector(`#body-${ev.turn_id}`) : null;
       if (body) {
         body.classList.remove('thinking');
-        body.textContent = ev.payload?.text || (interrupted ? '(no output before interrupt)' : '');
+        const text = ev.payload?.text || '';
+        body.textContent = text || (interrupted ? '(no output before interrupt)' : '(empty response)');
+        body.classList.toggle('italic', !text);
+        body.classList.toggle('opacity-60', !text);
       }
 
       // populate tldr summary
@@ -2371,6 +2434,14 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
 
       // verdict (turn_end only)
       if (!interrupted) applyVerdict(ev.turn_id, ev.payload?.verdict, card);
+
+      // anomaly (turn_end only)
+      if (!interrupted && ev.payload?.anomaly && card && !card.querySelector('.kollab-anomaly')) {
+        const note = document.createElement('div');
+        note.className = 'kollab-anomaly text-xs text-verdictDisagree border-t border-verdictDisagree/30 pt-2 mt-1';
+        note.textContent = `⚠ Anomaly: ${ev.payload.anomaly}`;
+        card.appendChild(note);
+      }
 
       // accumulate for summary card
       if (!interrupted && ev.payload?.summary) {

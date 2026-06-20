@@ -137,6 +137,14 @@ class CodexAgent(Agent):
             metadata={"tokens_in": tokens_in, "tokens_out": tokens_out},
         )
 
+    def _add_dir_flags(self) -> list[str]:
+        if not self._mcp_filesystem_enabled:
+            return []
+        flags: list[str] = []
+        for p in self._mcp_filesystem_paths:
+            flags += ["--add-dir", p]
+        return flags
+
     def _build_cmd(self, prompt: str, *, new_session: bool, images: list | None = None) -> list[str]:
         img_flags: list[str] = []
         for p in (images or []):
@@ -147,7 +155,8 @@ class CodexAgent(Agent):
                 self._binary, "exec",
                 "--json",
                 "--skip-git-repo-check",
-                "--dangerously-bypass-approvals-and-sandbox",
+                "--full-auto",
+                *self._add_dir_flags(),
                 "-m", self._model,
                 "-C", self._workdir,
                 *img_flags,
@@ -158,7 +167,8 @@ class CodexAgent(Agent):
             self._session_id,
             "--json",
             "--skip-git-repo-check",
-            "--dangerously-bypass-approvals-and-sandbox",
+            "--full-auto",
+            *self._add_dir_flags(),
             *img_flags,
             prompt,
         ]

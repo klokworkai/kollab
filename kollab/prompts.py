@@ -54,19 +54,26 @@ def system_critic(self_name: str, peer_name: str) -> str:
         "They may interrupt at any time."
     )
 
-def compose_system_prompt(base: str, user_prompt: str, disabled: bool) -> str:
+_NO_USER_PROFILE = "No user profile provided."
+
+
+def compose_system_prompt(base: str, user_prompt: str, disabled: bool, user_profile: str = "") -> str:
     """Combine the built-in role prompt with an optional user-added addendum.
 
     `disabled` drops `base` entirely (the user took on the risk of running
     without role instructions); `user_prompt` is always layered on top if set.
+    `user_profile` describes the human running the session (not the agent's
+    role) and is kept under its own heading, separate from role instructions.
     """
-    parts = [] if disabled else [base]
-    if user_prompt.strip():
-        parts.append(user_prompt.strip())
-    if not parts:
+    profile_text = user_profile.strip() or _NO_USER_PROFILE
+    parts = [f"## User Profile\n{profile_text}"]
+    instructions = ([] if disabled else [base]) + ([user_prompt.strip()] if user_prompt.strip() else [])
+    if instructions:
+        parts.append("## Instructions\n" + "\n\n".join(instructions))
+    else:
         log.warning(
             "compose_system_prompt: built-in prompt disabled and no user_prompt set — "
-            "agent will run with an empty system prompt, including no <verdict>/<tldr> "
+            "agent will run with no role instructions, including no <verdict>/<tldr> "
             "trailer instructions."
         )
     return "\n\n".join(parts)
