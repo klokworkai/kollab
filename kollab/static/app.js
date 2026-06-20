@@ -1833,6 +1833,35 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
   agentRow.appendChild(codexCol);
   form.appendChild(agentRow);
 
+  // ---- user profile section ----
+  const profileSep = document.createElement('div');
+  profileSep.className = 'border-t border-white/10 pt-3';
+  profileSep.innerHTML = '<p class="text-xs text-muted uppercase tracking-wider">User Profile</p>';
+  form.appendChild(profileSep);
+
+  const PROFILE_MAX_LEN = 2000;
+  const profileLabel = document.createElement('label');
+  profileLabel.className = 'flex flex-col gap-1 text-xs text-muted';
+  profileLabel.textContent = 'Tell both agents about yourself — role, experience, tech stack, expectations. Persists until changed or cleared.';
+  const profileTextarea = document.createElement('textarea');
+  profileTextarea.rows = 4;
+  profileTextarea.name = 'user_profile';
+  profileTextarea.maxLength = PROFILE_MAX_LEN;
+  profileTextarea.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none text-xs';
+  profileTextarea.value = cfg.user_profile || '';
+  profileTextarea.placeholder = "Senior backend engineer, 8 years experience, mostly Python and Go. Comfortable with distributed systems and async code; new to frontend/React. Working primarily in FastAPI/PostgreSQL stacks. Expect critiques to be specific and actionable, not just 'this could be better.'";
+  profileLabel.appendChild(profileTextarea);
+  form.appendChild(profileLabel);
+
+  const profileCounter = document.createElement('p');
+  profileCounter.className = 'text-xs text-muted text-right -mt-1';
+  const syncProfileCounter = () => {
+    profileCounter.textContent = `${profileTextarea.value.length} / ${PROFILE_MAX_LEN}`;
+  };
+  syncProfileCounter();
+  profileTextarea.addEventListener('input', syncProfileCounter);
+  form.appendChild(profileCounter);
+
   // ---- session settings grid ----
   const sessionSep = document.createElement('div');
   sessionSep.className = 'border-t border-white/10 pt-3';

@@ -88,14 +88,18 @@ class Session:
         codex_role: str = "critic" if self.claude_role == "producer" else "producer"
         if self.claude_role == "producer":
             self._claude_system: str = compose_system_prompt(
-                system_producer("Claude", "Codex"), cfg.producer_user_prompt, cfg.producer_system_prompt_disabled)
+                system_producer("Claude", "Codex"), cfg.producer_user_prompt, cfg.producer_system_prompt_disabled,
+                cfg.user_profile)
             self._codex_system: str = compose_system_prompt(
-                system_critic("Codex", "Claude"), cfg.critic_user_prompt, cfg.critic_system_prompt_disabled)
+                system_critic("Codex", "Claude"), cfg.critic_user_prompt, cfg.critic_system_prompt_disabled,
+                cfg.user_profile)
         else:
             self._claude_system = compose_system_prompt(
-                system_critic("Claude", "Codex"), cfg.critic_user_prompt, cfg.critic_system_prompt_disabled)
+                system_critic("Claude", "Codex"), cfg.critic_user_prompt, cfg.critic_system_prompt_disabled,
+                cfg.user_profile)
             self._codex_system = compose_system_prompt(
-                system_producer("Codex", "Claude"), cfg.producer_user_prompt, cfg.producer_system_prompt_disabled)
+                system_producer("Codex", "Claude"), cfg.producer_user_prompt, cfg.producer_system_prompt_disabled,
+                cfg.user_profile)
         self.producer_prompt_disabled: bool = cfg.producer_system_prompt_disabled
         self.critic_prompt_disabled: bool = cfg.critic_system_prompt_disabled
         self.producer_user_prompt: str = cfg.producer_user_prompt

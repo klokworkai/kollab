@@ -60,6 +60,9 @@ class Config(BaseModel):
     producer_system_prompt_disabled: bool = False
     critic_system_prompt_disabled: bool = False
 
+    # Describes the human running sessions — passed to both agents as context, not instructions
+    user_profile: str = ""
+
     round_limit: int = 8
     max_tokens_per_turn: int | None = None
     max_tokens_per_session: int | None = None
