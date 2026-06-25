@@ -204,7 +204,7 @@ This is a beta release. The feature set is stable but has not been extensively t
 Apache 2.0
 
 ---
-
+<sub>cool poster. feel free to print as many!</sub>
 <p align="center">
   <img src="./kollab/static/assets/kollab-logo.png"/>
 </p>
