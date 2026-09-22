@@ -1538,13 +1538,28 @@ const MODEL_MATRIX = {
   ],
 };
 
+// Configs saved before kollab switched to floating tier aliases (see
+// config.py) may still hold a pinned Claude snapshot string. Map those back
+// to their tier so the dropdown still shows a real selection instead of
+// silently landing on nothing.
+const LEGACY_CLAUDE_MODELS = {
+  'claude-haiku-4-5-20251001': 'haiku',
+  'claude-sonnet-4-6': 'sonnet',
+  'claude-opus-4-7': 'opus',
+};
+
+function normalizeClaudeModel(value) {
+  return LEGACY_CLAUDE_MODELS[value] || value;
+}
+
 function populateSelect(selectEl, agentKey, currentValue) {
   selectEl.innerHTML = '';
+  const normalized = agentKey === 'claude' ? normalizeClaudeModel(currentValue) : currentValue;
   for (const m of MODEL_MATRIX[agentKey]) {
     const opt = document.createElement('option');
     opt.value = m.model;
     opt.textContent = `${m.label} (auto-updates to latest)`;
-    if (m.model === currentValue) opt.selected = true;
+    if (m.model === normalized) opt.selected = true;
     selectEl.appendChild(opt);
   }
 }
@@ -1795,11 +1810,12 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
     if (f.type === 'select') {
       input = document.createElement('select');
       input.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none';
+      const normalized = f.agentKey === 'claude' ? normalizeClaudeModel(cfg[f.key]) : cfg[f.key];
       for (const m of MODEL_MATRIX[f.agentKey]) {
         const o = document.createElement('option');
         o.value = m.model;
         o.textContent = `${m.label} (auto-updates to latest)`;
-        if (cfg[f.key] === m.model) o.selected = true;
+        if (normalized === m.model) o.selected = true;
         input.appendChild(o);
       }
     } else if (f.type === 'codex_model') {
