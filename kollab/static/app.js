@@ -1525,16 +1525,20 @@ async function _clearStagingOnCancel() {
 // "an alias for the latest model") — so the value passed here is the alias
 // itself, never a pinned snapshot string that could go stale.
 // Codex has no equivalent: `codex exec -m mini` fails outright (400, "model is
-// not supported"), and a pinned snapshot silently degrades once retired
-// ("Model metadata ... not found"). There is no safe alternate to hardcode, so
-// Codex model is a free-text override (see index.html) with blank meaning
-// "let Codex resolve its own account default" — the only value that can't go
-// stale.
+// not supported") if the account doesn't have that model, and a pinned
+// snapshot silently degrades once retired ("Model metadata ... not found").
+// So the dropdown's blank entry maps to '' — "let Codex resolve its own
+// account default" — alongside the named model strings, which the user picks
+// knowingly and can fall back off of if one goes stale.
 const MODEL_MATRIX = {
   claude: [
     { label: 'haiku',  model: 'haiku',  tier: 'fast'     },
     { label: 'sonnet', model: 'sonnet', tier: 'gp'       },
     { label: 'opus',   model: 'opus',   tier: 'high-end' },
+  ],
+  codex: [
+    { label: 'account default', model: '',             tier: null   },
+    { label: 'mini',            model: 'gpt-5.4-mini',  tier: 'fast' },
   ],
 };
 
@@ -1558,8 +1562,8 @@ function populateSelect(selectEl, agentKey, currentValue) {
   for (const m of MODEL_MATRIX[agentKey]) {
     const opt = document.createElement('option');
     opt.value = m.model;
-    opt.textContent = `${m.label} (auto-updates to latest)`;
-    if (m.model === normalized) opt.selected = true;
+    opt.textContent = agentKey === 'claude' ? `${m.label} (auto-updates to latest)` : m.label;
+    if (m.model === (normalized || '')) opt.selected = true;
     selectEl.appendChild(opt);
   }
 }
@@ -1577,7 +1581,7 @@ btnNewSession.addEventListener('click', async () => {
   } catch (_) {}
 
   populateSelect(document.getElementById('override-claude-model'), 'claude', cfg.claude_model || MODEL_MATRIX.claude[1].model);
-  document.getElementById('override-codex-model').value = '';
+  populateSelect(document.getElementById('override-codex-model'), 'codex', cfg.codex_model || '');
 
   const roundInput = document.getElementById('override-round-limit');
   roundInput.placeholder = `default (${cfg.round_limit ?? 8})`;
@@ -1810,20 +1814,14 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
     if (f.type === 'select') {
       input = document.createElement('select');
       input.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none';
-      const normalized = f.agentKey === 'claude' ? normalizeClaudeModel(cfg[f.key]) : cfg[f.key];
+      const normalized = f.agentKey === 'claude' ? normalizeClaudeModel(cfg[f.key]) : (cfg[f.key] || '');
       for (const m of MODEL_MATRIX[f.agentKey]) {
         const o = document.createElement('option');
         o.value = m.model;
-        o.textContent = `${m.label} (auto-updates to latest)`;
+        o.textContent = f.agentKey === 'claude' ? `${m.label} (auto-updates to latest)` : m.label;
         if (normalized === m.model) o.selected = true;
         input.appendChild(o);
       }
-    } else if (f.type === 'codex_model') {
-      input = document.createElement('input');
-      input.type = 'text';
-      input.placeholder = 'account default (auto-updates)';
-      input.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user placeholder-muted focus:outline-none';
-      input.value = cfg[f.key] || '';
     } else if (f.type === 'logging_level') {
       input = document.createElement('select');
       input.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none disabled:opacity-40';
@@ -1869,7 +1867,7 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
   codexCol.appendChild(codexHeader);
   for (const f of [
     { key: 'codex_binary', label: 'Binary path' },
-    { key: 'codex_model',  label: 'Model', type: 'codex_model' },
+    { key: 'codex_model',  label: 'Model', type: 'select', agentKey: 'codex' },
     { key: 'codex_workdir',label: 'Working dir' },
   ]) makeField(f, codexCol);
 
