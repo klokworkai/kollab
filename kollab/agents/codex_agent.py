@@ -17,10 +17,12 @@ class CodexAgent(Agent):
                  mcp_filesystem_enabled: bool = False,
                  mcp_filesystem_paths: list[str] | None = None,
                  mcp_github_enabled: bool = False,
-                 mcp_github_token: str = "") -> None:
+                 mcp_github_token: str = "",
+                 reasoning_effort: str = "") -> None:
         self.role = role
         self._binary = binary
         self._model = model
+        self._reasoning_effort = reasoning_effort
         self._workdir = workdir
         self._mcp_filesystem_enabled = mcp_filesystem_enabled
         self._mcp_filesystem_paths = mcp_filesystem_paths or []
@@ -156,6 +158,12 @@ class CodexAgent(Agent):
             # stale — see DEFAULT_CODEX_MODEL in config.py.
             model = self._model.strip()
             model_flags = ["-m", model] if model else []
+            # Reasoning effort only makes sense pinned to an explicit model —
+            # if model is blank (account default), leave Codex's defaults alone end to end.
+            reasoning_flags = (
+                ["-c", f"model_reasoning_effort={self._reasoning_effort}"]
+                if model and self._reasoning_effort else []
+            )
             return [
                 self._binary, "exec",
                 "--json",
@@ -163,6 +171,7 @@ class CodexAgent(Agent):
                 "--full-auto",
                 *self._add_dir_flags(),
                 *model_flags,
+                *reasoning_flags,
                 "-C", self._workdir,
                 *img_flags,
                 prompt,

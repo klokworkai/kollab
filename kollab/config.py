@@ -76,6 +76,9 @@ class Config(BaseModel):
     codex_binary: str = "codex"
     codex_model: str = DEFAULT_CODEX_MODEL
     codex_workdir: str = "~/.kollab/workspace/codex"
+    # Resolved from `codex debug models` at server startup (see
+    # kollab/codex_models.py) — each entry: {slug, display_name, reasoning_effort}.
+    codex_model_catalog: list[dict] = []
 
     # System prompts — user-added text layered on top of the built-in role prompts
     producer_user_prompt: str = ""
@@ -195,7 +198,19 @@ def load_config() -> Config:
         if "claude_model" in data:
             data["claude_model"] = _LEGACY_CLAUDE_MODELS.get(data["claude_model"], data["claude_model"])
         cfg = Config(**data)
-    
+
+    # A codex_model pinned to a slug the provider has since retired (e.g. the
+    # pre-catalog "gpt-5.4") would otherwise silently break every Codex turn
+    # forever. Reset to account default rather than fail on a stale pin the
+    # user never chose to move off of.
+    known_slugs = {m.get("slug") for m in cfg.codex_model_catalog}
+    if cfg.codex_model and cfg.codex_model not in known_slugs:
+        log.warning(
+            "codex_model '%s' is not in the known model catalog — resetting to account default",
+            cfg.codex_model,
+        )
+        cfg.codex_model = DEFAULT_CODEX_MODEL
+
     # expand tildes on all path fields
     cfg.claude_workdir = _expand(cfg.claude_workdir)
     cfg.codex_workdir = _expand(cfg.codex_workdir)

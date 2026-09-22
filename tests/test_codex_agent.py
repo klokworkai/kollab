@@ -65,3 +65,24 @@ def test_build_cmd_omits_model_flag_when_blank() -> None:
     agent = _make_agent(model="")
     cmd = agent._build_cmd("hello", new_session=True)
     assert "-m" not in cmd
+
+
+def test_build_cmd_includes_reasoning_effort_when_model_and_effort_set() -> None:
+    agent = _make_agent(model="gpt-6-sol", reasoning_effort="low")
+    cmd = agent._build_cmd("hello", new_session=True)
+    assert "-c" in cmd
+    assert "model_reasoning_effort=low" in cmd
+
+
+def test_build_cmd_omits_reasoning_effort_when_model_blank() -> None:
+    """Account-default should leave Codex's own defaults alone end to end —
+    a reasoning override with no explicit model doesn't make sense."""
+    agent = _make_agent(model="", reasoning_effort="low")
+    cmd = agent._build_cmd("hello", new_session=True)
+    assert "-c" not in cmd
+
+
+def test_build_cmd_omits_reasoning_effort_when_not_set() -> None:
+    agent = _make_agent(model="gpt-6-sol", reasoning_effort="")
+    cmd = agent._build_cmd("hello", new_session=True)
+    assert "-c" not in cmd

@@ -28,6 +28,7 @@ from .attachments import (
     stage_file,
 )
 from .config import Config, MODEL_ALIASES, load_config, save_config, validate_config, next_session_number
+from .codex_models import build_catalog, fetch_codex_catalog
 from .ace import Session, SessionOverrides
 from .prompts import system_critic, system_producer
 from .transcript import TranscriptLog
@@ -118,6 +119,17 @@ def _reconcile_orphaned_sessions(cfg: Config) -> None:
 
 
 _reconcile_orphaned_sessions(_cfg)
+
+
+@app.on_event("startup")
+async def _refresh_codex_model_catalog() -> None:
+    """Re-resolve the Codex model dropdown from `codex debug models` on every
+    launch. Best-effort: on failure the last-saved catalog (or none, on a
+    fresh install) keeps serving the dropdowns — never blocks startup."""
+    raw = await fetch_codex_catalog(_cfg.codex_binary)
+    if raw:
+        _cfg.codex_model_catalog = build_catalog(raw)
+        save_config(_cfg)
 
 
 # ------------------------------------------------------------------ auth

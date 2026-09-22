@@ -113,16 +113,22 @@ class Session:
             mcp_filesystem_enabled=cfg.mcp_filesystem_enabled,
             mcp_filesystem_paths=[Path(p).expanduser().__str__() for p in cfg.mcp_filesystem_paths],
         )
+        codex_model_value = ov.codex_model or cfg.codex_model
+        codex_reasoning_effort = next(
+            (m["reasoning_effort"] for m in cfg.codex_model_catalog if m["slug"] == codex_model_value),
+            "",
+        )
         self._codex = CodexAgent(
             role=codex_role,
             binary=cfg.codex_binary,
-            model=ov.codex_model or cfg.codex_model,
+            model=codex_model_value,
             workdir=Path(cfg.codex_workdir).expanduser().__str__(),
             mcp_filesystem_enabled=cfg.mcp_filesystem_enabled,
             mcp_filesystem_paths=[Path(p).expanduser().__str__() for p in cfg.mcp_filesystem_paths],
+            reasoning_effort=codex_reasoning_effort,
         )
         self.claude_model: str = ov.claude_model or cfg.claude_model
-        self.codex_model: str = ov.codex_model or cfg.codex_model
+        self.codex_model: str = codex_model_value
         self._transcript: TranscriptLog | None = None
         self._claude_turn_count: int = 0
         self._codex_turn_count: int = 0

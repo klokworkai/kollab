@@ -1536,11 +1536,26 @@ const MODEL_MATRIX = {
     { label: 'sonnet', model: 'sonnet', tier: 'gp'       },
     { label: 'opus',   model: 'opus',   tier: 'high-end' },
   ],
+  // Fallback only, used until /api/config's codex_model_catalog is populated
+  // (fresh install, before the backend's first successful `codex debug
+  // models` resolve). Real options come from the backend — see
+  // codexOptionsFromConfig() — since Codex model slugs are versioned and
+  // change over time, unlike Claude's CLI-native, self-updating aliases.
   codex: [
-    { label: 'account default', model: '',             tier: null   },
-    { label: 'mini',            model: 'gpt-5.4-mini',  tier: 'fast' },
+    { label: 'account default', model: '' },
   ],
 };
+
+// Builds the live Codex dropdown options from cfg.codex_model_catalog
+// (kollab/codex_models.py, resolved from `codex debug models` at startup).
+function codexOptionsFromConfig(cfg) {
+  const catalog = cfg && cfg.codex_model_catalog;
+  if (!catalog || catalog.length === 0) return MODEL_MATRIX.codex;
+  return [
+    { label: 'account default', model: '' },
+    ...catalog.map(m => ({ label: m.display_name, model: m.slug })),
+  ];
+}
 
 // Configs saved before kollab switched to floating tier aliases (see
 // config.py) may still hold a pinned Claude snapshot string. Map those back
@@ -1556,14 +1571,15 @@ function normalizeClaudeModel(value) {
   return LEGACY_CLAUDE_MODELS[value] || value;
 }
 
-function populateSelect(selectEl, agentKey, currentValue) {
+function populateSelect(selectEl, agentKey, currentValue, options) {
   selectEl.innerHTML = '';
-  const normalized = agentKey === 'claude' ? normalizeClaudeModel(currentValue) : currentValue;
-  for (const m of MODEL_MATRIX[agentKey]) {
+  const normalized = agentKey === 'claude' ? normalizeClaudeModel(currentValue) : (currentValue || '');
+  const list = options || MODEL_MATRIX[agentKey];
+  for (const m of list) {
     const opt = document.createElement('option');
     opt.value = m.model;
     opt.textContent = agentKey === 'claude' ? `${m.label} (auto-updates to latest)` : m.label;
-    if (m.model === (normalized || '')) opt.selected = true;
+    if (m.model === normalized) opt.selected = true;
     selectEl.appendChild(opt);
   }
 }
@@ -1581,7 +1597,7 @@ btnNewSession.addEventListener('click', async () => {
   } catch (_) {}
 
   populateSelect(document.getElementById('override-claude-model'), 'claude', cfg.claude_model || MODEL_MATRIX.claude[1].model);
-  populateSelect(document.getElementById('override-codex-model'), 'codex', cfg.codex_model || '');
+  populateSelect(document.getElementById('override-codex-model'), 'codex', cfg.codex_model || '', codexOptionsFromConfig(cfg));
 
   const roundInput = document.getElementById('override-round-limit');
   roundInput.placeholder = `default (${cfg.round_limit ?? 8})`;
@@ -1815,7 +1831,8 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
       input = document.createElement('select');
       input.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none';
       const normalized = f.agentKey === 'claude' ? normalizeClaudeModel(cfg[f.key]) : (cfg[f.key] || '');
-      for (const m of MODEL_MATRIX[f.agentKey]) {
+      const options = f.agentKey === 'codex' ? codexOptionsFromConfig(cfg) : MODEL_MATRIX[f.agentKey];
+      for (const m of options) {
         const o = document.createElement('option');
         o.value = m.model;
         o.textContent = f.agentKey === 'claude' ? `${m.label} (auto-updates to latest)` : m.label;
