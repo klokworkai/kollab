@@ -151,13 +151,18 @@ class CodexAgent(Agent):
             img_flags += ["-i", str(p)]
 
         if new_session or self._session_id is None:
+            # Empty model means "let Codex resolve its own current account
+            # default" rather than pinning a snapshot string that can go
+            # stale — see DEFAULT_CODEX_MODEL in config.py.
+            model = self._model.strip()
+            model_flags = ["-m", model] if model else []
             return [
                 self._binary, "exec",
                 "--json",
                 "--skip-git-repo-check",
                 "--full-auto",
                 *self._add_dir_flags(),
-                "-m", self._model,
+                *model_flags,
                 "-C", self._workdir,
                 *img_flags,
                 prompt,
