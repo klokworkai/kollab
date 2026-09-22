@@ -70,3 +70,15 @@ def test_model_aliases_only_covers_claude_tiers() -> None:
     """Codex model strings must be passed through as-is (or left blank) since
     there is no safe fixed alias table to resolve them against."""
     assert set(MODEL_ALIASES) == {"haiku", "sonnet", "opus"}
+
+
+def test_load_config_migrates_legacy_claude_snapshot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A config.toml written before kollab switched to floating tier aliases
+    may still hold a pinned Claude snapshot string. It must be migrated to the
+    matching tier on load so it keeps resolving to the CLI's current model."""
+    config_file = tmp_path / "config.toml"
+    monkeypatch.setattr("kollab.config.CONFIG_PATH", config_file)
+    config_file.write_text('claude_model = "claude-sonnet-4-6"\n')
+
+    loaded = load_config()
+    assert loaded.claude_model == "sonnet"
