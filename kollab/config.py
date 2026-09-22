@@ -29,6 +29,15 @@ MODEL_ALIASES: dict[str, str] = {
 
 DEFAULT_CLAUDE_MODEL = "sonnet"
 
+# Configs saved before kollab switched to floating tier aliases may still hold
+# a pinned Claude snapshot string. Mapped back to its tier on load so it keeps
+# resolving to the CLI's current model instead of a frozen snapshot.
+_LEGACY_CLAUDE_MODELS: dict[str, str] = {
+    "claude-haiku-4-5-20251001": "haiku",
+    "claude-sonnet-4-6": "sonnet",
+    "claude-opus-4-7": "opus",
+}
+
 # Codex CLI has no equivalent alias resolution — confirmed `codex exec -m mini`
 # fails with a 400 ("model is not supported"), and a pinned snapshot string
 # (`gpt-5.4`) degrades silently once the provider retires it ("Model metadata
@@ -183,6 +192,8 @@ def load_config() -> Config:
     else:
         with CONFIG_PATH.open("rb") as f:
             data = tomllib.load(f)
+        if "claude_model" in data:
+            data["claude_model"] = _LEGACY_CLAUDE_MODELS.get(data["claude_model"], data["claude_model"])
         cfg = Config(**data)
     
     # expand tildes on all path fields
