@@ -206,11 +206,10 @@
             </select>
           </label>
           <label class="flex flex-col gap-1 text-xs text-muted flex-1">
-            Codex model
-            <select id="override-codex-model"
-              class="bg-userPanel border border-white/20 rounded px-2 py-1.5 text-user focus:outline-none">
-              <!-- options injected by app.js -->
-            </select>
+            Codex model <span class="normal-case opacity-60">(blank = config default)</span>
+            <input id="override-codex-model" type="text" placeholder="config default"
+              class="bg-userPanel border border-white/20 rounded px-2 py-1.5 text-user
+                     placeholder-muted focus:outline-none focus:border-white/40" />
           </label>
         </div>
 

@@ -888,7 +888,7 @@ function onState(msg) {
       tab.sessionNumber = msg.session_number;
       tab.sessionId = tab.sessionId || msg.session_id || null;
       if (msg.claude_model) tab.claudeModel = msg.claude_model;
-      if (msg.codex_model)  tab.codexModel  = msg.codex_model;
+      tab.codexModel = msg.codex_model || 'account default';
       if (msg.round_limit)  tab.roundLimit  = msg.round_limit;
       if (msg.max_tokens_per_session) tab.maxTokensSession = msg.max_tokens_per_session;
       if (msg.claude_role)  tab.claudeRole  = msg.claude_role;
@@ -903,10 +903,11 @@ function onState(msg) {
         const goalNumEl = document.getElementById('goal-session-num');
         if (goalNumEl) goalNumEl.textContent = `Session #${msg.session_number}`;
         const goalMetaEl = document.getElementById('goal-meta-models');
-        if (goalMetaEl && msg.claude_model && msg.codex_model) {
+        if (goalMetaEl && msg.claude_model) {
+          const codexModelLabel = msg.codex_model || 'account default';
           const cr = msg.claude_role || 'producer';
-          const producerModel = cr === 'producer' ? msg.claude_model : msg.codex_model;
-          const critiqueModel = cr === 'producer' ? msg.codex_model : msg.claude_model;
+          const producerModel = cr === 'producer' ? msg.claude_model : codexModelLabel;
+          const critiqueModel = cr === 'producer' ? codexModelLabel : msg.claude_model;
           const tokenCapPart = msg.max_tokens_per_session ? ` · token cap: ${msg.max_tokens_per_session}` : '';
           goalMetaEl.textContent = `Producer: ${producerModel} · Critique: ${critiqueModel} · rounds: ${msg.round_limit ?? '?'}${tokenCapPart}`;
         }
@@ -1519,15 +1520,21 @@ async function _clearStagingOnCancel() {
 
 // ------------------------------------------------------------------ new session modal
 
+// Claude tier names are aliases the `claude` CLI itself resolves to its current
+// model (confirmed: `claude --help` documents 'sonnet'/'opus'/'haiku'/'fable' as
+// "an alias for the latest model") — so the value passed here is the alias
+// itself, never a pinned snapshot string that could go stale.
+// Codex has no equivalent: `codex exec -m mini` fails outright (400, "model is
+// not supported"), and a pinned snapshot silently degrades once retired
+// ("Model metadata ... not found"). There is no safe alternate to hardcode, so
+// Codex model is a free-text override (see index.html) with blank meaning
+// "let Codex resolve its own account default" — the only value that can't go
+// stale.
 const MODEL_MATRIX = {
   claude: [
-    { label: 'haiku',  model: 'claude-haiku-4-5-20251001', tier: 'fast'     },
-    { label: 'sonnet', model: 'claude-sonnet-4-6',          tier: 'gp'       },
-    { label: 'opus',   model: 'claude-opus-4-7',            tier: 'high-end' },
-  ],
-  codex: [
-    { label: 'mini',    model: 'gpt-5.4-mini', tier: 'fast' },
-    { label: 'gpt-5.4', model: 'gpt-5.4',      tier: 'gp'   },
+    { label: 'haiku',  model: 'haiku',  tier: 'fast'     },
+    { label: 'sonnet', model: 'sonnet', tier: 'gp'       },
+    { label: 'opus',   model: 'opus',   tier: 'high-end' },
   ],
 };
 
@@ -1536,7 +1543,7 @@ function populateSelect(selectEl, agentKey, currentValue) {
   for (const m of MODEL_MATRIX[agentKey]) {
     const opt = document.createElement('option');
     opt.value = m.model;
-    opt.textContent = `${m.label} (${m.model})`;
+    opt.textContent = `${m.label} (auto-updates to latest)`;
     if (m.model === currentValue) opt.selected = true;
     selectEl.appendChild(opt);
   }
@@ -1555,7 +1562,7 @@ btnNewSession.addEventListener('click', async () => {
   } catch (_) {}
 
   populateSelect(document.getElementById('override-claude-model'), 'claude', cfg.claude_model || MODEL_MATRIX.claude[1].model);
-  populateSelect(document.getElementById('override-codex-model'),  'codex',  cfg.codex_model  || MODEL_MATRIX.codex[1].model);
+  document.getElementById('override-codex-model').value = '';
 
   const roundInput = document.getElementById('override-round-limit');
   roundInput.placeholder = `default (${cfg.round_limit ?? 8})`;
@@ -1791,10 +1798,16 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
       for (const m of MODEL_MATRIX[f.agentKey]) {
         const o = document.createElement('option');
         o.value = m.model;
-        o.textContent = `${m.label} (${m.model})`;
+        o.textContent = `${m.label} (auto-updates to latest)`;
         if (cfg[f.key] === m.model) o.selected = true;
         input.appendChild(o);
       }
+    } else if (f.type === 'codex_model') {
+      input = document.createElement('input');
+      input.type = 'text';
+      input.placeholder = 'account default (auto-updates)';
+      input.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user placeholder-muted focus:outline-none';
+      input.value = cfg[f.key] || '';
     } else if (f.type === 'logging_level') {
       input = document.createElement('select');
       input.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none disabled:opacity-40';
@@ -1840,7 +1853,7 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
   codexCol.appendChild(codexHeader);
   for (const f of [
     { key: 'codex_binary', label: 'Binary path' },
-    { key: 'codex_model',  label: 'Model', type: 'select', agentKey: 'codex' },
+    { key: 'codex_model',  label: 'Model', type: 'codex_model' },
     { key: 'codex_workdir',label: 'Working dir' },
   ]) makeField(f, codexCol);
 
@@ -2305,10 +2318,11 @@ function _reconstructEvents(events, appendFn, fallbackSessionNumber) {
         critic_user_prompt: ev.payload?.critic_user_prompt || '',
       };
       const _reconClaudeRole = ev.payload?.claude_role || 'producer';
-      const _reconProducerModel = _reconClaudeRole === 'producer' ? _claudeModel : _codexModel;
-      const _reconCritiqueModel = _reconClaudeRole === 'producer' ? _codexModel : _claudeModel;
+      const _reconCodexModelLabel = _codexModel || 'account default';
+      const _reconProducerModel = _reconClaudeRole === 'producer' ? _claudeModel : _reconCodexModelLabel;
+      const _reconCritiqueModel = _reconClaudeRole === 'producer' ? _reconCodexModelLabel : _claudeModel;
       const _reconTokenCapPart = _maxTokensSession ? ` · token cap: ${_maxTokensSession}` : '';
-      const metaModels = (_claudeModel && _codexModel)
+      const metaModels = _claudeModel
         ? `Producer: ${_reconProducerModel} · Critique: ${_reconCritiqueModel} · rounds: ${_roundLimit ?? '?'}${_reconTokenCapPart}`
         : '';
       goalCard = document.createElement('div');

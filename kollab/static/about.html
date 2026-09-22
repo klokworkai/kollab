@@ -249,7 +249,7 @@
           to review — then optionally override the defaults just for this run:
         </p>
         <ul style="font-size:0.85rem;color:var(--text-dim);line-height:1.8;padding-left:1.25rem;margin-bottom:0.75rem">
-          <li><strong>Claude model / Codex model</strong> — pick the tier for each agent (haiku/sonnet/opus, mini/gpt-5.4)</li>
+          <li><strong>Claude model</strong> — pick a tier (haiku/sonnet/opus); the CLI resolves it to its current model, so it never goes stale. <strong>Codex model</strong> — leave blank for the account default (also auto-updates), or pin an exact model string if you need one</li>
           <li><strong>Round limit</strong> — cap the number of back-and-forth rounds (default from Configure)</li>
           <li><strong>Max tokens / turn</strong> — advisory limit injected into each agent's prompt</li>
           <li><strong>Max tokens / session</strong> — hard halt when cumulative token budget is hit</li>

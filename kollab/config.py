@@ -17,12 +17,26 @@ log = logging.getLogger("kollab.config")
 
 _SLACK_PREFIX = "https://hooks.slack.com/"
 
+# Claude CLI resolves these tier names to its current model itself (confirmed via
+# `claude --help`: "Provide an alias for the latest model (e.g. 'fable', 'opus', or
+# 'sonnet')"), so kollab never needs to know or store a Claude snapshot string —
+# the alias is passed straight through to `--model` as an identity mapping.
 MODEL_ALIASES: dict[str, str] = {
-    "haiku":  "claude-haiku-4-5-20251001",
-    "sonnet": "claude-sonnet-4-6",
-    "opus":   "claude-opus-4-7",
-    "mini":   "gpt-5.4-mini",
+    "haiku":  "haiku",
+    "sonnet": "sonnet",
+    "opus":   "opus",
 }
+
+DEFAULT_CLAUDE_MODEL = "sonnet"
+
+# Codex CLI has no equivalent alias resolution — confirmed `codex exec -m mini`
+# fails with a 400 ("model is not supported"), and a pinned snapshot string
+# (`gpt-5.4`) degrades silently once the provider retires it ("Model metadata
+# ... not found. Defaulting to fallback metadata"). Omitting `-m` entirely lets
+# Codex resolve its own current account default, which is the only value here
+# that can't go stale. Empty string is the sentinel for "no -m flag" — see
+# CodexAgent._build_cmd.
+DEFAULT_CODEX_MODEL = ""
 
 MCP_PACKAGES = {
     "mcp_filesystem": "@modelcontextprotocol/server-filesystem",
@@ -47,11 +61,11 @@ class WebhookConfig(BaseModel):
 
 class Config(BaseModel):
     claude_binary: str = "claude"
-    claude_model: str = "claude-sonnet-4-6"
+    claude_model: str = DEFAULT_CLAUDE_MODEL
     claude_workdir: str = "~/.kollab/workspace/claude"
 
     codex_binary: str = "codex"
-    codex_model: str = "gpt-5.4"
+    codex_model: str = DEFAULT_CODEX_MODEL
     codex_workdir: str = "~/.kollab/workspace/codex"
 
     # System prompts — user-added text layered on top of the built-in role prompts
