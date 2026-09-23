@@ -123,10 +123,10 @@ Verify or update these fields:
 | Field | Default | What to set |
 |-------|---------|-------------|
 | Claude binary path | `claude` | full path if `claude` isn't on PATH, e.g. `/usr/local/bin/claude` |
-| Claude model | `sonnet` | `opus`, `sonnet`, or `haiku` |
+| Claude model | `haiku` | `opus`, `sonnet`, or `haiku` — the `claude` CLI resolves the alias to its current model itself |
 | Claude working dir | `~/.kollab/workspace/claude` | leave as-is unless you have a reason |
 | Codex binary path | `codex` | full path if `codex` isn't on PATH |
-| Codex model | `gpt-5.4` | any model your Codex account can access |
+| Codex model | resolved automatically | kollab runs `codex debug models` at every launch and populates the dropdown with whatever your Codex account currently has access to — pick any listed entry, or "account default" to let Codex choose |
 | Codex working dir | `~/.kollab/workspace/codex` | leave as-is |
 | Round limit | `8` | max number of rounds before the session auto-ends |
 | Port | `8765` | change if 8765 is in use |
@@ -221,6 +221,14 @@ cat ~/.kollab/sessions/<session-id>.jsonl | python3 -m json.tool | less
 jq '.' ~/.kollab/sessions/<session-id>.jsonl | less
 ```
 
+For *why* an agent turn failed (bad model, a CLI flag the installed Codex/Claude version no longer accepts, an API error), check the app log instead:
+
+```
+~/.kollab/kollab.log
+```
+
+This file is written regardless of the `logging_enabled` setting — a failed agent turn always logs its actual error message (WARNING level or above) here, even if you never turned on verbose logging. `logging_enabled`/`logging_level` in Configure only control whether you additionally get INFO/DEBUG tracing for normal (non-error) activity. The first agent error each run also auto-escalates the file to DEBUG for the rest of that session, and shows a one-time banner in the UI transcript when it does.
+
 ---
 
 ## 14. Run tests
@@ -230,7 +238,7 @@ pip3 install -e ".[dev]"
 python3 -m pytest tests/ -v
 ```
 
-All 36 tests should pass. These cover config round-trip, verdict parsing, turn ID generation, response reference parsing, prompt building, API auth, and webhook delivery.
+All 70 tests should pass. These cover config round-trip, verdict parsing, turn ID generation, response reference parsing, prompt building, API auth, webhook delivery, Codex CLI command construction, live model catalog resolution, and auto-escalating error logging.
 
 ---
 
@@ -314,3 +322,9 @@ rm -rf ~/.codex
 
 **`claude-agent-sdk` auth error**
 → Re-run `claude` in your terminal to re-authenticate, then restart kollab.
+
+**Codex turn completes instantly with no text, no error shown in the UI**
+→ Check `~/.kollab/kollab.log` — a failed Codex turn always logs the real reason there (bad model, a CLI flag your installed `codex` version no longer supports, an API error), regardless of your logging settings (see §13). This is usually a `codex` CLI version mismatch: kollab targets the flags of a specific `codex exec` version, and OpenAI has changed them before (e.g. `--full-auto` was removed). Run `codex exec --help` to check what your installed version actually accepts, and file an issue if the flags kollab uses no longer match.
+
+**Codex model dropdown is empty or missing an expected model**
+→ kollab resolves the dropdown from `codex debug models` at every launch (see `codex_models.py`). If that command fails (network issue, `codex` not logged in, binary not found), kollab keeps whatever catalog was last saved — check `~/.kollab/kollab.log` for `codex model catalog fetch ...` warnings. Run `codex debug models` directly in your terminal to see what your account currently has access to.

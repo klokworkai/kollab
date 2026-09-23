@@ -1,6 +1,6 @@
 # kollab
 
-> 🧪 **v1.1.0-beta** — kollab is in active development and has not been extensively tested. Bug reports and feedback welcome — open an [issue](https://github.com/klokworkai/kollab/issues) or reach out at [kollab@klokwork.ai](mailto:kollab@klokwork.ai).
+> 🧪 **v1.2.0-beta** — kollab is in active development and has not been extensively tested. Bug reports and feedback welcome — open an [issue](https://github.com/klokworkai/kollab/issues) or reach out at [kollab@klokwork.ai](mailto:kollab@klokwork.ai).
 
 **koll♠b** — a structured validation and correction layer for AI-generated proposals, with a full audit trail.
 
@@ -153,14 +153,14 @@ Config lives at `~/.kollab/config.toml`. The **⚙ Configure** modal is the reco
 | Field | Default | Description |
 |---|---|---|
 | `claude_binary` | `claude` | Path to Claude Code CLI |
-| `claude_model` | `claude-sonnet-4-6` | Default Claude model. Short aliases (`haiku`, `sonnet`, `opus`) are also accepted. |
+| `claude_model` | `haiku` | Default Claude tier alias (`haiku`, `sonnet`, `opus`) — the `claude` CLI resolves it to its current model itself |
 | `codex_binary` | `codex` | Path to Codex CLI |
-| `codex_model` | `gpt-5.4` | Default Codex model. Short alias `mini` resolves to `gpt-5.4-mini`. |
+| `codex_model` | resolved from live catalog | Default Codex model. kollab runs `codex debug models` at every launch and picks the most current entry — there's no CLI-native alias like Claude's, so the dropdown always reflects what your account can actually access |
 | `round_limit` | `8` | Max rounds per session |
 | `halt_timeout_secs` | `1800` | Auto-expire halted sessions (0 = never) |
 | `port` | `8765` | Server port |
 | `mcp_filesystem_enabled` | `true` | Give Claude filesystem MCP access |
-| `logging_enabled` | `false` | Write logs to `~/.kollab/kollab.log` |
+| `logging_enabled` | `false` | Raises `~/.kollab/kollab.log` to INFO/DEBUG. Agent errors (WARNING+) are always logged regardless of this setting |
 
 Per-session overrides (role assignment, model, round limit, token budget) are set in the New Session modal.
 
@@ -193,9 +193,9 @@ See [ROADMAP.md](ROADMAP.md).
 
 ## Status
 
-v1.1.0-beta. Core validation loop, configurable role assignment, halt/resume, directive injection, user profile context, file attachments, session history, streaming, export, and readonly replay are complete. REST API and webhook layer are implemented but not end-to-end validated — see disclaimer above.
+v1.2.0-beta. Core validation loop, configurable role assignment, halt/resume, directive injection, user profile context, file attachments, session history, streaming, export, and readonly replay are complete. REST API and webhook layer are implemented but not end-to-end validated — see disclaimer above.
 
-This is a beta release. The feature set is stable but has not been extensively tested end-to-end, particularly the latest additions (user profile injection, token-limit history pill, turn anomaly detection, Codex `--full-auto` sandboxing). If something breaks, please [open an issue](https://github.com/klokworkai/kollab/issues).
+This is a beta release. The feature set is stable but has not been extensively tested end-to-end, particularly the latest additions (live Codex model catalog resolution, auto-escalating debug logging, Codex `--approve-for-me` sandboxing). If something breaks, please [open an issue](https://github.com/klokworkai/kollab/issues).
 
 ---
 
