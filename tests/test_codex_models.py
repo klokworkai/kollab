@@ -41,16 +41,10 @@ def test_build_catalog_skips_entries_without_slug() -> None:
     assert [m["slug"] for m in catalog] == ["gpt-6-luna"]
 
 
-def test_build_catalog_dedupes_same_tier_keeps_most_current() -> None:
-    """Two generations of the same tier (e.g. gpt-6-luna and gpt-5.6-luna)
-    shouldn't both show up as 'Luna' in the dropdown — keep only the one
-    with the lower (more current) priority."""
+def test_build_catalog_keeps_multiple_generations_of_same_tier() -> None:
+    """Codex's own `/model` picker lists gpt-6-luna and gpt-5.6-luna as two
+    distinct, separately-selectable models (confirmed via screenshot) — not
+    a duplicate to collapse."""
     raw = [_model("gpt-5.6-luna", 8), _model("gpt-6-luna", 3), _model("gpt-5.6-terra", 7)]
     catalog = build_catalog(raw)
-    assert [m["slug"] for m in catalog] == ["gpt-6-luna", "gpt-5.6-terra"]
-
-
-def test_build_catalog_keeps_untiered_slugs_distinct() -> None:
-    raw = [_model("gpt-6-luna", 3), _model("gpt-5.5", 12)]
-    catalog = build_catalog(raw)
-    assert [m["slug"] for m in catalog] == ["gpt-6-luna", "gpt-5.5"]
+    assert [m["slug"] for m in catalog] == ["gpt-6-luna", "gpt-5.6-terra", "gpt-5.6-luna"]
