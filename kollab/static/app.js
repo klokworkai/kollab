@@ -1532,9 +1532,9 @@ async function _clearStagingOnCancel() {
 // knowingly and can fall back off of if one goes stale.
 const MODEL_MATRIX = {
   claude: [
-    { label: 'haiku',  model: 'haiku',  tier: 'fast'     },
-    { label: 'sonnet', model: 'sonnet', tier: 'gp'       },
-    { label: 'opus',   model: 'opus',   tier: 'high-end' },
+    { label: 'haiku',  model: 'haiku',  tier: 'fast',     description: 'fastest, lightweight tasks'   },
+    { label: 'sonnet', model: 'sonnet', tier: 'gp',       description: 'balanced coding & reasoning'  },
+    { label: 'opus',   model: 'opus',   tier: 'high-end', description: 'most capable, complex tasks'  },
   ],
   // Fallback only, used until /api/config's codex_model_catalog is populated
   // (fresh install, before the backend's first successful `codex debug
@@ -1552,7 +1552,7 @@ const MODEL_MATRIX = {
 function codexOptionsFromConfig(cfg) {
   const catalog = cfg && cfg.codex_model_catalog;
   if (!catalog || catalog.length === 0) return MODEL_MATRIX.codex;
-  return catalog.map(m => ({ label: m.display_name, model: m.slug }));
+  return catalog.map(m => ({ label: m.display_name, model: m.slug, description: m.description }));
 }
 
 // Configs saved before kollab switched to floating tier aliases (see
@@ -1576,7 +1576,9 @@ function populateSelect(selectEl, agentKey, currentValue, options) {
   for (const m of list) {
     const opt = document.createElement('option');
     opt.value = m.model;
-    opt.textContent = agentKey === 'claude' ? `${m.label} (latest)` : m.label;
+    opt.textContent = agentKey === 'claude'
+      ? `${m.label} (latest — ${m.description})`
+      : (m.description ? `${m.label} (${m.description})` : m.label);
     if (m.model === normalized) opt.selected = true;
     selectEl.appendChild(opt);
   }
@@ -1833,7 +1835,9 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
       for (const m of options) {
         const o = document.createElement('option');
         o.value = m.model;
-        o.textContent = f.agentKey === 'claude' ? `${m.label} (latest)` : m.label;
+        o.textContent = f.agentKey === 'claude'
+          ? `${m.label} (latest — ${m.description})`
+          : (m.description ? `${m.label} (${m.description})` : m.label);
         if (normalized === m.model) o.selected = true;
         input.appendChild(o);
       }

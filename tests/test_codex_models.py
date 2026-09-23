@@ -1,10 +1,11 @@
 from kollab.codex_models import build_catalog
 
 
-def _model(slug, priority, visibility="list", levels=("low", "medium", "high")):
+def _model(slug, priority, visibility="list", levels=("low", "medium", "high"), description="A model."):
     return {
         "slug": slug,
         "display_name": slug.upper(),
+        "description": description,
         "visibility": visibility,
         "priority": priority,
         "supported_reasoning_levels": [{"effort": e} for e in levels],
@@ -39,6 +40,12 @@ def test_build_catalog_skips_entries_without_slug() -> None:
     raw = [_model("gpt-6-luna", 3), {"visibility": "list", "priority": 1}]
     catalog = build_catalog(raw)
     assert [m["slug"] for m in catalog] == ["gpt-6-luna"]
+
+
+def test_build_catalog_strips_trailing_period_from_description() -> None:
+    raw = [_model("gpt-6-luna", 3, description="Fast and affordable model for easier tasks.")]
+    catalog = build_catalog(raw)
+    assert catalog[0]["description"] == "Fast and affordable model for easier tasks"
 
 
 def test_build_catalog_keeps_multiple_generations_of_same_tier() -> None:

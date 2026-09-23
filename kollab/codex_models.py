@@ -68,6 +68,7 @@ def build_catalog(raw_models: list[dict]) -> list[dict]:
         {
             "slug": m["slug"],
             "display_name": m.get("display_name", m["slug"]),
+            "description": m.get("description", "").strip().rstrip("."),
             "reasoning_effort": _cheapest_reasoning(m.get("supported_reasoning_levels", [])),
         }
         for m in visible
