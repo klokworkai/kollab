@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 from typing import AsyncIterator
 
 from .base import Agent, AgentChunk
+
+log = logging.getLogger("kollab.codex_agent")
 
 _UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
 
@@ -96,6 +99,18 @@ class CodexAgent(Agent):
         assert proc.stderr is not None
         self._proc = proc
 
+        stderr_buf: list[bytes] = []
+
+        async def _drain_stderr() -> None:
+            # Read concurrently with stdout, not after — otherwise a chatty
+            # stderr can fill its OS pipe buffer and deadlock the process
+            # while we're only reading stdout.
+            assert proc.stderr is not None
+            async for chunk in proc.stderr:
+                stderr_buf.append(chunk)
+
+        stderr_task = asyncio.create_task(_drain_stderr())
+
         text_buf: list[str] = []
         reasoning_buf: list[str] = []
         tokens_in = 0
@@ -121,6 +136,16 @@ class CodexAgent(Agent):
                 usage = event.get("usage", {})
                 tokens_in = usage.get("input_tokens", 0)
                 tokens_out = usage.get("output_tokens", 0)
+            elif event.get("type") == "turn.failed":
+                # Codex reports failures (bad model, API errors, etc.) as a
+                # JSON event on stdout, not a stderr message or non-zero
+                # exit — confirmed: `-m <invalid>` exits 0 with this event
+                # and empty agent output, easy to mistake for a silent hang.
+                log.warning("codex turn.failed: %s", event.get("error", {}).get("message", event))
+
+            item = event.get("item", {})
+            if item.get("item_type") == "error":
+                log.warning("codex item error: %s", item.get("text") or item.get("message") or item)
 
             kind, text = self._extract_item(event)
             if kind == "text":
@@ -131,8 +156,15 @@ class CodexAgent(Agent):
                 reasoning_buf.append(text)
 
         await proc.wait()
+        await stderr_task
         if self._proc is proc:
             self._proc = None
+        if proc.returncode != 0 or not text_buf:
+            stderr_text = b"".join(stderr_buf).decode("utf-8", errors="replace").strip()
+            log.warning(
+                "codex exec exited %s with no usable output — cmd=%s stderr=%s",
+                proc.returncode, cmd, stderr_text or "(empty)",
+            )
         yield AgentChunk(
             kind="done",
             content="".join(text_buf),
