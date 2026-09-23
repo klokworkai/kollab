@@ -4,6 +4,24 @@ All notable changes to koll♠b are documented here. Format follows [Keep a Chan
 
 ## [Unreleased]
 
+### Added
+- Live Codex model catalog — `codex debug models` is run at every launch to resolve which models the account currently has access to (`codex_models.py`); the New Session and Configure dropdowns are built from this, not a hardcoded list. Each entry carries a description and its cheapest supported reasoning effort, applied via `-c model_reasoning_effort=<level>`
+- Auto-escalating error logging — `~/.kollab/kollab.log` now always captures WARNING+ (including agent failures) regardless of the `logging_enabled` setting, which now only controls additional INFO/DEBUG verbosity. The first agent error each run also bumps logging to DEBUG for the rest of that session and shows a one-time banner in the UI transcript
+- Per-turn agent errors now surface inline via the existing turn-anomaly note (e.g. `agent error: <detail>`), for both Claude (`ResultMessage.is_error`) and Codex (`turn.failed`/item error events)
+- Claude and Codex model dropdown options now show a one-line description (and, for Claude, today's known resolved version) instead of a bare tier/model name
+
+### Fixed
+- Every Codex turn was failing silently (empty output, near-instant duration) because `--full-auto` was removed from current Codex CLI versions — replaced with `--approve-for-me`. A second, related break (`--add-dir`/approval flags rejected on `codex exec resume`) was fixed by not re-passing them on resumed threads, which inherit the policy set at session start
+- Codex model selection was pinned to hardcoded snapshot strings (`gpt-5.4`, `gpt-5.4-mini`) that the provider had since retired, silently breaking every Codex turn — a stale/retired selection now self-heals to the live catalog's current top entry (`config.resolve_codex_model()`)
+- Codex's `stderr` and `turn.failed`/error JSON events (the actual place Codex reports failures) were captured but never surfaced anywhere — now logged with the real error message
+- Codex model catalog fetch could leak an orphaned subprocess if `codex debug models` hung past its timeout — now explicitly killed and reaped
+- Config load could wipe a valid `codex_model` back to blank whenever the model catalog hadn't been resolved yet this run, instead of only resetting truly-invalid selections
+- Claude default model changed from `sonnet` to `haiku`
+
+### Changed
+- Codex sandboxing flag renamed from `--full-auto` to `--approve-for-me` (functionally equivalent — auto-approve via the workspace-write sandbox)
+- Agent failure-path logging redacts the full prompt (previously logged verbatim, including goal and peer-turn text) down to a character count
+
 ## [1.1.0-beta] — 2026-06-20
 
 ### Added

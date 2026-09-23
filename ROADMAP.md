@@ -21,7 +21,13 @@ Completed turns with empty text or a missing verdict trailer are flagged with a 
 Session token cap displayed on the goal card when `max_tokens_per_session` is set. `token_limit` history pill and filter swatch added. `max_tokens_per_turn` removed — it was never enforceable and produced broken turns.
 
 ### Codex sandboxing
-`codex exec` now runs with `--full-auto` plus `--add-dir` per configured path, replacing `--dangerously-bypass-approvals-and-sandbox`. Write access scoped to `codex_workdir` and configured paths.
+`codex exec` runs with `--approve-for-me` (auto-approve via the workspace-write sandbox) plus `--add-dir` per configured path, replacing `--dangerously-bypass-approvals-and-sandbox`. Write access scoped to `codex_workdir` and configured paths. (Previously `--full-auto` — removed from the Codex CLI upstream; `codex exec resume` also dropped support for `--add-dir`/approval flags, so resumed threads now inherit the policy set at session start instead of re-passing it.)
+
+### Live Codex model catalog
+The Codex model dropdown (New Session + Configure) is resolved from `codex debug models` at every launch instead of a hardcoded list — fixes a real outage where pinned snapshots (`gpt-5.4`, `gpt-5.4-mini`) were retired by the provider and silently broke every Codex turn. Each entry carries a description and its cheapest supported reasoning effort, passed via `-c model_reasoning_effort=<level>`. A stale/retired selection self-heals to the catalog's current top entry (`config.resolve_codex_model()`).
+
+### Auto-escalating error visibility
+`~/.kollab/kollab.log` now always captures WARNING+ (including agent failures) regardless of the `logging_enabled` setting — that toggle only controls additional INFO/DEBUG verbosity. The first agent error each run also bumps logging to DEBUG for the rest of that session and surfaces a one-time banner in the UI transcript. Failed turns show the real error inline via the existing turn-anomaly note.
 
 ### File attachments
 Attach files to a session at start — injected into both agents' context via the prompt layer.

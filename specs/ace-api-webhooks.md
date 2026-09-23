@@ -123,13 +123,13 @@ Returns current session state for polling. No request body.
 {
   "goal": "Design a retry policy for the payments service",
   "round_limit": 6,
-  "claude_model": "claude-sonnet-4-6",
-  "codex_model": "gpt-5.4",
+  "claude_model": "sonnet",
+  "codex_model": "gpt-6-luna",
   "max_tokens_per_session": null
 }
 ```
 
-All fields except `goal` are optional. `claude_model` and `codex_model` accept the short label (`sonnet`, `haiku`, `mini`) or the full model string. If a short label is passed, resolve it via `MODEL_MATRIX` in `app.js` — or define the same mapping in `config.py` as `MODEL_ALIASES: dict[str, str]` so server-side callers don't need the browser.
+All fields except `goal` are optional. `claude_model` accepts a tier alias (`haiku`/`sonnet`/`opus`) — resolved by the `claude` CLI itself via `MODEL_ALIASES` in `config.py` (identity mapping; no snapshot string is ever stored). `codex_model` accepts any `slug` currently present in `codex_model_catalog` (see `codex_models.py` — populated from `codex debug models` at server startup, not a fixed alias set), or `""` for "let Codex resolve its own account default". `GET /api/config` returns the current `codex_model_catalog` so a server-side caller can pick a valid slug without needing the browser dropdown.
 
 **Response:**
 ```json
@@ -516,18 +516,9 @@ async def get_session_state() -> dict:
     }
 ```
 
-**Add `MODEL_ALIASES` to `config.py`** for server-side model string resolution:
+`config.py` already defines `MODEL_ALIASES` for Claude (an identity mapping — `"haiku": "haiku"`, etc. — since the `claude` CLI resolves the alias itself, kollab never stores a snapshot string). Codex has no equivalent fixed alias table: `body.codex_model` is validated against the live `cfg.codex_model_catalog` via `config.resolve_codex_model()` instead, since valid slugs change over time and depend on the account's `codex login`.
 
-```python
-MODEL_ALIASES: dict[str, str] = {
-    "haiku":  "claude-haiku-4-5-20251001",
-    "sonnet": "claude-sonnet-4-6",
-    "opus":   "claude-opus-4-7",
-    "mini":   "gpt-5.4-mini",
-}
-```
-
-In `start_session()`, resolve `body.claude_model` and `body.codex_model` through `MODEL_ALIASES` before passing to `SessionOverrides`.
+In `start_session()`, resolve `body.claude_model` through `MODEL_ALIASES` and `body.codex_model` through `resolve_codex_model()` before passing to `SessionOverrides`.
 
 ### 4.5 Configure modal in `app.js`
 
