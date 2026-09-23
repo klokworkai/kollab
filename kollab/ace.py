@@ -22,6 +22,7 @@ from .prompts import (
     build_first_turn_prompt, build_turn_prompt, compose_system_prompt,
     system_critic, system_producer,
 )
+from .runtime_logging import escalate_to_debug
 from .transcript import TranscriptLog
 from .webhooks import emit
 
@@ -277,6 +278,7 @@ class Session:
         turn_tokens_in = 0
         turn_tokens_out = 0
         turn_thread_id = ""
+        turn_agent_error: str | None = None
         async for chunk in agent.send(prompt, images=delivery_images or None):
             # On halt: signal the agent to cancel (best effort) and stop
             # accumulating chunks into the turn. We DO continue iterating so
@@ -306,6 +308,7 @@ class Session:
                 meta = chunk.metadata or {}
                 turn_tokens_in = meta.get("tokens_in") or 0
                 turn_tokens_out = meta.get("tokens_out") or 0
+                turn_agent_error = meta.get("error")
                 if actor == "claude":
                     turn_thread_id = meta.get("session_id") or self._claude._session_id or ""
                 else:
@@ -358,8 +361,20 @@ class Session:
         )
 
         turn.anomaly = _detect_anomaly(turn.text, turn.verdict, is_first_turn=last_peer_turn is None)
+        if turn_agent_error:
+            turn.anomaly = f"agent error: {turn_agent_error}" + (f" ({turn.anomaly})" if turn.anomaly else "")
         if turn.anomaly:
             log.warning("turn_anomaly %s actor=%s reason=%r", turn_id, actor, turn.anomaly)
+        if turn_agent_error and escalate_to_debug():
+            # First agent error seen this run — bump logging to DEBUG (see
+            # runtime_logging.py) and tell the user right in the transcript,
+            # reusing the existing error-banner path (server.py already
+            # broadcasts {"type": "error"} for session-task exceptions).
+            self._broadcast({
+                "type": "error",
+                "message": ("An agent error occurred — debug logging has been enabled and "
+                             "errors are now being captured to ~/.kollab/kollab.log."),
+            })
 
         log.info("turn_end %s actor=%s verdict=%s duration_ms=%d tokens_in=%d tokens_out=%d",
                  turn_id, actor, turn.verdict, duration_ms, turn_tokens_in, turn_tokens_out)

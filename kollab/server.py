@@ -29,6 +29,7 @@ from .attachments import (
 )
 from .config import Config, MODEL_ALIASES, load_config, save_config, validate_config, next_session_number
 from .codex_models import build_catalog, fetch_codex_catalog
+from .runtime_logging import reset_escalation
 from .ace import Session, SessionOverrides
 from .prompts import system_critic, system_producer
 from .transcript import TranscriptLog
@@ -61,6 +62,7 @@ def _apply_logging(cfg: Config) -> None:
     """
     global _file_handler
     logger = _kollab_logger
+    reset_escalation()  # an explicit config change should win over auto-escalation
 
     if _file_handler is not None:
         logger.removeHandler(_file_handler)

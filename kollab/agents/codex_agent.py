@@ -115,6 +115,7 @@ class CodexAgent(Agent):
         reasoning_buf: list[str] = []
         tokens_in = 0
         tokens_out = 0
+        agent_error: str | None = None
 
         async for raw_line in proc.stdout:
             line = raw_line.decode("utf-8", errors="replace").rstrip()
@@ -141,11 +142,13 @@ class CodexAgent(Agent):
                 # JSON event on stdout, not a stderr message or non-zero
                 # exit — confirmed: `-m <invalid>` exits 0 with this event
                 # and empty agent output, easy to mistake for a silent hang.
-                log.warning("codex turn.failed: %s", event.get("error", {}).get("message", event))
+                agent_error = event.get("error", {}).get("message") or str(event)
+                log.warning("codex turn.failed: %s", agent_error)
 
             item = event.get("item", {})
             if item.get("item_type") == "error":
-                log.warning("codex item error: %s", item.get("text") or item.get("message") or item)
+                agent_error = item.get("text") or item.get("message") or str(item)
+                log.warning("codex item error: %s", agent_error)
 
             kind, text = self._extract_item(event)
             if kind == "text":
@@ -161,6 +164,7 @@ class CodexAgent(Agent):
             self._proc = None
         if proc.returncode != 0 or not text_buf:
             stderr_text = b"".join(stderr_buf).decode("utf-8", errors="replace").strip()
+            agent_error = agent_error or stderr_text or f"codex exec exited {proc.returncode} with no output"
             log.warning(
                 "codex exec exited %s with no usable output — cmd=%s stderr=%s",
                 proc.returncode, cmd, stderr_text or "(empty)",
@@ -168,7 +172,7 @@ class CodexAgent(Agent):
         yield AgentChunk(
             kind="done",
             content="".join(text_buf),
-            metadata={"tokens_in": tokens_in, "tokens_out": tokens_out},
+            metadata={"tokens_in": tokens_in, "tokens_out": tokens_out, "error": agent_error},
         )
 
     def _add_dir_flags(self) -> list[str]:
