@@ -168,7 +168,7 @@ class CodexAgent(Agent):
                 self._binary, "exec",
                 "--json",
                 "--skip-git-repo-check",
-                "--full-auto",
+                "--approve-for-me",
                 *self._add_dir_flags(),
                 *model_flags,
                 *reasoning_flags,
@@ -176,13 +176,15 @@ class CodexAgent(Agent):
                 *img_flags,
                 prompt,
             ]
+        # `codex exec resume` accepts neither --approve-for-me/--sandbox nor
+        # --add-dir (confirmed: both error with "unexpected argument") — the
+        # resumed thread keeps the approval/sandbox policy and directory
+        # access set when it was created via the branch above.
         return [
             self._binary, "exec", "resume",
             self._session_id,
             "--json",
             "--skip-git-repo-check",
-            "--full-auto",
-            *self._add_dir_flags(),
             *img_flags,
             prompt,
         ]

@@ -11,10 +11,15 @@ def _make_agent(model: str = "test-model", **kwargs) -> CodexAgent:
     )
 
 
-def test_build_cmd_uses_full_auto_not_bypass() -> None:
+def test_build_cmd_uses_approve_for_me_not_bypass() -> None:
+    """`--full-auto` was removed from the installed codex CLI (confirmed:
+    v0.155.1 errors with "unexpected argument '--full-auto'") — replaced
+    with `--approve-for-me`, which the CLI docs describe as auto-approving
+    via the workspace-write sandbox, the same effective policy."""
     agent = _make_agent()
     cmd = agent._build_cmd("hello", new_session=True)
-    assert "--full-auto" in cmd
+    assert "--approve-for-me" in cmd
+    assert "--full-auto" not in cmd
     assert "--dangerously-bypass-approvals-and-sandbox" not in cmd
 
 
@@ -32,13 +37,17 @@ def test_build_cmd_omits_add_dir_when_disabled() -> None:
     assert "--add-dir" not in cmd
 
 
-def test_build_cmd_resume_also_adds_dir_flags() -> None:
+def test_build_cmd_resume_omits_add_dir_and_approval_flags() -> None:
+    """`codex exec resume` accepts neither --add-dir nor --approve-for-me/
+    --full-auto (confirmed: both error with "unexpected argument" on
+    v0.155.1) — the resumed thread keeps the directory access and sandbox
+    policy set when it was created via the new-session branch."""
     agent = _make_agent(mcp_filesystem_enabled=True, mcp_filesystem_paths=["/a"])
     agent._session_id = "thread-123"
     cmd = agent._build_cmd("hello", new_session=False)
-    assert "--add-dir" in cmd
-    assert "/a" in cmd
-    assert "--full-auto" in cmd
+    assert "--add-dir" not in cmd
+    assert "--approve-for-me" not in cmd
+    assert "--full-auto" not in cmd
 
 
 def test_build_cmd_includes_model_flag_when_set() -> None:
