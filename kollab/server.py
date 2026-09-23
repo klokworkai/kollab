@@ -51,21 +51,26 @@ log = logging.getLogger("kollab.server")
 
 
 def _apply_logging(cfg: Config) -> None:
-    """Configure or tear down file logging based on current config."""
+    """Configure file logging based on current config.
+
+    The file handler is always attached, at WARNING level minimum, so an
+    agent failure (bad model, API error, CLI flag rejected, etc.) lands in
+    ~/.kollab/kollab.log even if the user never opted into verbose logging.
+    `logging_enabled`/`logging_level` only raise verbosity to INFO/DEBUG —
+    they don't gate whether errors get captured at all.
+    """
     global _file_handler
     logger = _kollab_logger
 
-    # Remove existing file handler first
     if _file_handler is not None:
         logger.removeHandler(_file_handler)
         _file_handler.close()
         _file_handler = None
 
-    if not cfg.logging_enabled:
-        logger.setLevel(logging.WARNING)  # effectively silent
-        return
-
-    level = logging.DEBUG if cfg.logging_level == "debug" else logging.INFO
+    if cfg.logging_enabled:
+        level = logging.DEBUG if cfg.logging_level == "debug" else logging.INFO
+    else:
+        level = logging.WARNING
     logger.setLevel(level)
 
     _LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -77,7 +82,8 @@ def _apply_logging(cfg: Config) -> None:
     ))
     logger.addHandler(handler)
     _file_handler = handler
-    logger.info("Logging started (level=%s, file=%s)", cfg.logging_level, _LOG_PATH)
+    if cfg.logging_enabled:
+        logger.info("Logging started (level=%s, file=%s)", cfg.logging_level, _LOG_PATH)
 
 
 # Apply logging on startup from loaded config

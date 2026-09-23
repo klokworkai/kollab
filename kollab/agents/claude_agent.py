@@ -95,6 +95,11 @@ class ClaudeAgent(Agent):
                             yield AgentChunk(kind="reasoning", content=block.thinking)
             elif isinstance(msg, sdk_types.ResultMessage):
                 self._session_id = msg.session_id
+                if msg.is_error:
+                    log.warning(
+                        "claude turn failed (stop_reason=%s): %s",
+                        msg.stop_reason, msg.errors or msg.result or "(no error detail)",
+                    )
                 yield AgentChunk(
                     kind="done",
                     content="",
