@@ -1584,7 +1584,7 @@ function populateSelect(selectEl, agentKey, currentValue, options) {
     const opt = document.createElement('option');
     opt.value = m.model;
     opt.textContent = agentKey === 'claude'
-      ? `${m.label} (latest: ${m.version} — ${m.description})`
+      ? `${m.label} (${m.version} — ${m.description})`
       : (m.description ? `${m.label} (${m.description})` : m.label);
     if (m.model === normalized) opt.selected = true;
     selectEl.appendChild(opt);
@@ -1843,7 +1843,7 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
         const o = document.createElement('option');
         o.value = m.model;
         o.textContent = f.agentKey === 'claude'
-          ? `${m.label} (latest: ${m.version} — ${m.description})`
+          ? `${m.label} (${m.version} — ${m.description})`
           : (m.description ? `${m.label} (${m.description})` : m.label);
         if (normalized === m.model) o.selected = true;
         input.appendChild(o);
