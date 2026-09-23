@@ -1525,18 +1525,42 @@ async function _clearStagingOnCancel() {
 // "an alias for the latest model") — so the value passed here is the alias
 // itself, never a pinned snapshot string that could go stale.
 // Codex has no equivalent: `codex exec -m mini` fails outright (400, "model is
-// not supported"), and a pinned snapshot silently degrades once retired
-// ("Model metadata ... not found"). There is no safe alternate to hardcode, so
-// Codex model is a free-text override (see index.html) with blank meaning
-// "let Codex resolve its own account default" — the only value that can't go
-// stale.
+// not supported") if the account doesn't have that model, and a pinned
+// snapshot silently degrades once retired ("Model metadata ... not found").
+// So the dropdown's blank entry maps to '' — "let Codex resolve its own
+// account default" — alongside the named model strings, which the user picks
+// knowingly and can fall back off of if one goes stale.
 const MODEL_MATRIX = {
+  // `version` is today's known snapshot behind each alias — display text
+  // only. The actual -m flag kollab sends is still the alias itself, which
+  // the `claude` CLI keeps resolving on its own, so this going stale over
+  // time doesn't break anything — it's just a label that may need a manual
+  // refresh eventually (there's no free/live way to query it: the CLI has
+  // no lightweight "resolve this alias" command like `codex debug models` —
+  // the only way is a full billed `claude -p` session, confirmed ~$0.15/call).
   claude: [
-    { label: 'haiku',  model: 'haiku',  tier: 'fast'     },
-    { label: 'sonnet', model: 'sonnet', tier: 'gp'       },
-    { label: 'opus',   model: 'opus',   tier: 'high-end' },
+    { label: 'haiku',  model: 'haiku',  tier: 'fast',     version: 'claude-haiku-4-5-20251001', description: 'fastest, lightweight tasks'  },
+    { label: 'sonnet', model: 'sonnet', tier: 'gp',       version: 'claude-sonnet-5',            description: 'balanced coding & reasoning' },
+    { label: 'opus',   model: 'opus',   tier: 'high-end', version: 'claude-opus-5',              description: 'most capable, complex tasks' },
+  ],
+  // Fallback only, used until /api/config's codex_model_catalog is populated
+  // (fresh install, before the backend's first successful `codex debug
+  // models` resolve). Real options come from the backend — see
+  // codexOptionsFromConfig() — since Codex model slugs are versioned and
+  // change over time, unlike Claude's CLI-native, self-updating aliases.
+  codex: [
+    { label: 'account default', model: '' },
   ],
 };
+
+// Builds the live Codex dropdown options from cfg.codex_model_catalog
+// (kollab/codex_models.py, resolved from `codex debug models` at startup,
+// sorted most-current-first — index 0 is the default).
+function codexOptionsFromConfig(cfg) {
+  const catalog = cfg && cfg.codex_model_catalog;
+  if (!catalog || catalog.length === 0) return MODEL_MATRIX.codex;
+  return catalog.map(m => ({ label: m.display_name, model: m.slug, description: m.description }));
+}
 
 // Configs saved before kollab switched to floating tier aliases (see
 // config.py) may still hold a pinned Claude snapshot string. Map those back
@@ -1552,13 +1576,16 @@ function normalizeClaudeModel(value) {
   return LEGACY_CLAUDE_MODELS[value] || value;
 }
 
-function populateSelect(selectEl, agentKey, currentValue) {
+function populateSelect(selectEl, agentKey, currentValue, options) {
   selectEl.innerHTML = '';
-  const normalized = agentKey === 'claude' ? normalizeClaudeModel(currentValue) : currentValue;
-  for (const m of MODEL_MATRIX[agentKey]) {
+  const normalized = agentKey === 'claude' ? normalizeClaudeModel(currentValue) : (currentValue || '');
+  const list = options || MODEL_MATRIX[agentKey];
+  for (const m of list) {
     const opt = document.createElement('option');
     opt.value = m.model;
-    opt.textContent = `${m.label} (auto-updates to latest)`;
+    opt.textContent = agentKey === 'claude'
+      ? `${m.label} (${m.version} — ${m.description})`
+      : (m.description ? `${m.label} (${m.description})` : m.label);
     if (m.model === normalized) opt.selected = true;
     selectEl.appendChild(opt);
   }
@@ -1576,8 +1603,8 @@ btnNewSession.addEventListener('click', async () => {
     if (res.ok) cfg = await res.json();
   } catch (_) {}
 
-  populateSelect(document.getElementById('override-claude-model'), 'claude', cfg.claude_model || MODEL_MATRIX.claude[1].model);
-  document.getElementById('override-codex-model').value = '';
+  populateSelect(document.getElementById('override-claude-model'), 'claude', cfg.claude_model || MODEL_MATRIX.claude[0].model);
+  populateSelect(document.getElementById('override-codex-model'), 'codex', cfg.codex_model || '', codexOptionsFromConfig(cfg));
 
   const roundInput = document.getElementById('override-round-limit');
   roundInput.placeholder = `default (${cfg.round_limit ?? 8})`;
@@ -1810,20 +1837,17 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
     if (f.type === 'select') {
       input = document.createElement('select');
       input.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none';
-      const normalized = f.agentKey === 'claude' ? normalizeClaudeModel(cfg[f.key]) : cfg[f.key];
-      for (const m of MODEL_MATRIX[f.agentKey]) {
+      const normalized = f.agentKey === 'claude' ? normalizeClaudeModel(cfg[f.key]) : (cfg[f.key] || '');
+      const options = f.agentKey === 'codex' ? codexOptionsFromConfig(cfg) : MODEL_MATRIX[f.agentKey];
+      for (const m of options) {
         const o = document.createElement('option');
         o.value = m.model;
-        o.textContent = `${m.label} (auto-updates to latest)`;
+        o.textContent = f.agentKey === 'claude'
+          ? `${m.label} (${m.version} — ${m.description})`
+          : (m.description ? `${m.label} (${m.description})` : m.label);
         if (normalized === m.model) o.selected = true;
         input.appendChild(o);
       }
-    } else if (f.type === 'codex_model') {
-      input = document.createElement('input');
-      input.type = 'text';
-      input.placeholder = 'account default (auto-updates)';
-      input.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user placeholder-muted focus:outline-none';
-      input.value = cfg[f.key] || '';
     } else if (f.type === 'logging_level') {
       input = document.createElement('select');
       input.className = 'bg-userPanel border border-white/20 rounded px-2 py-1 text-user focus:outline-none disabled:opacity-40';
@@ -1869,7 +1893,7 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
   codexCol.appendChild(codexHeader);
   for (const f of [
     { key: 'codex_binary', label: 'Binary path' },
-    { key: 'codex_model',  label: 'Model', type: 'codex_model' },
+    { key: 'codex_model',  label: 'Model', type: 'select', agentKey: 'codex' },
     { key: 'codex_workdir',label: 'Working dir' },
   ]) makeField(f, codexCol);
 
