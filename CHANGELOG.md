@@ -4,6 +4,8 @@ All notable changes to koll♠b are documented here. Format follows [Keep a Chan
 
 ## [Unreleased]
 
+## [1.2.0-beta] — 2026-09-23
+
 ### Added
 - Live Codex model catalog — `codex debug models` is run at every launch to resolve which models the account currently has access to (`codex_models.py`); the New Session and Configure dropdowns are built from this, not a hardcoded list. Each entry carries a description and its cheapest supported reasoning effort, applied via `-c model_reasoning_effort=<level>`
 - Auto-escalating error logging — `~/.kollab/kollab.log` now always captures WARNING+ (including agent failures) regardless of the `logging_enabled` setting, which now only controls additional INFO/DEBUG verbosity. The first agent error each run also bumps logging to DEBUG for the rest of that session and shows a one-time banner in the UI transcript
