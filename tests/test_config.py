@@ -54,8 +54,8 @@ def test_claude_model_defaults_to_a_floating_alias() -> None:
     current model, so the default must be a bare alias, never a pinned
     snapshot string that can go stale."""
     cfg = Config()
-    assert cfg.claude_model == "sonnet"
-    assert MODEL_ALIASES["sonnet"] == "sonnet"
+    assert cfg.claude_model == "haiku"
+    assert MODEL_ALIASES["haiku"] == "haiku"
 
 
 def test_codex_model_defaults_to_blank_for_account_default() -> None:

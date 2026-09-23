@@ -1531,10 +1531,17 @@ async function _clearStagingOnCancel() {
 // account default" — alongside the named model strings, which the user picks
 // knowingly and can fall back off of if one goes stale.
 const MODEL_MATRIX = {
+  // `version` is today's known snapshot behind each alias — display text
+  // only. The actual -m flag kollab sends is still the alias itself, which
+  // the `claude` CLI keeps resolving on its own, so this going stale over
+  // time doesn't break anything — it's just a label that may need a manual
+  // refresh eventually (there's no free/live way to query it: the CLI has
+  // no lightweight "resolve this alias" command like `codex debug models` —
+  // the only way is a full billed `claude -p` session, confirmed ~$0.15/call).
   claude: [
-    { label: 'haiku',  model: 'haiku',  tier: 'fast',     description: 'fastest, lightweight tasks'   },
-    { label: 'sonnet', model: 'sonnet', tier: 'gp',       description: 'balanced coding & reasoning'  },
-    { label: 'opus',   model: 'opus',   tier: 'high-end', description: 'most capable, complex tasks'  },
+    { label: 'haiku',  model: 'haiku',  tier: 'fast',     version: 'claude-haiku-4-5-20251001', description: 'fastest, lightweight tasks'  },
+    { label: 'sonnet', model: 'sonnet', tier: 'gp',       version: 'claude-sonnet-5',            description: 'balanced coding & reasoning' },
+    { label: 'opus',   model: 'opus',   tier: 'high-end', version: 'claude-opus-5',              description: 'most capable, complex tasks' },
   ],
   // Fallback only, used until /api/config's codex_model_catalog is populated
   // (fresh install, before the backend's first successful `codex debug
@@ -1577,7 +1584,7 @@ function populateSelect(selectEl, agentKey, currentValue, options) {
     const opt = document.createElement('option');
     opt.value = m.model;
     opt.textContent = agentKey === 'claude'
-      ? `${m.label} (latest — ${m.description})`
+      ? `${m.label} (latest: ${m.version} — ${m.description})`
       : (m.description ? `${m.label} (${m.description})` : m.label);
     if (m.model === normalized) opt.selected = true;
     selectEl.appendChild(opt);
@@ -1596,7 +1603,7 @@ btnNewSession.addEventListener('click', async () => {
     if (res.ok) cfg = await res.json();
   } catch (_) {}
 
-  populateSelect(document.getElementById('override-claude-model'), 'claude', cfg.claude_model || MODEL_MATRIX.claude[1].model);
+  populateSelect(document.getElementById('override-claude-model'), 'claude', cfg.claude_model || MODEL_MATRIX.claude[0].model);
   populateSelect(document.getElementById('override-codex-model'), 'codex', cfg.codex_model || '', codexOptionsFromConfig(cfg));
 
   const roundInput = document.getElementById('override-round-limit');
@@ -1836,7 +1843,7 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
         const o = document.createElement('option');
         o.value = m.model;
         o.textContent = f.agentKey === 'claude'
-          ? `${m.label} (latest — ${m.description})`
+          ? `${m.label} (latest: ${m.version} — ${m.description})`
           : (m.description ? `${m.label} (${m.description})` : m.label);
         if (normalized === m.model) o.selected = true;
         input.appendChild(o);

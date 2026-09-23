@@ -27,7 +27,7 @@ MODEL_ALIASES: dict[str, str] = {
     "opus":   "opus",
 }
 
-DEFAULT_CLAUDE_MODEL = "sonnet"
+DEFAULT_CLAUDE_MODEL = "haiku"
 
 # Configs saved before kollab switched to floating tier aliases may still hold
 # a pinned Claude snapshot string. Mapped back to its tier on load so it keeps
