@@ -168,7 +168,7 @@
   <!-- new session modal -->
   <div id="modal-new-session"
     class="fixed inset-0 bg-black/60 flex items-center justify-center hidden z-50">
-    <div class="bg-panel border border-white/20 rounded-lg p-6 w-full max-w-4xl flex flex-col gap-4 overflow-y-auto max-h-[90vh]">
+    <div class="bg-panel border border-white/20 rounded-lg p-6 w-full max-w-5xl flex flex-col gap-4 overflow-y-auto max-h-[90vh]">
       <div class="flex items-baseline justify-between">
         <h2 class="text-base font-bold">New Session</h2>
         <div id="new-session-prompt-status" class="flex items-center gap-2 text-xs"></div>
@@ -198,17 +198,17 @@
 
         <!-- models row -->
         <div class="flex gap-3">
-          <label class="flex flex-col gap-1 text-xs text-muted flex-1">
+          <label class="flex flex-col gap-1 text-xs text-muted flex-1 min-w-0">
             Claude model
             <select id="override-claude-model"
-              class="bg-userPanel border border-white/20 rounded px-2 py-1.5 text-user focus:outline-none">
+              class="bg-userPanel border border-white/20 rounded px-2 py-1.5 text-user focus:outline-none w-full min-w-0">
               <!-- options injected by app.js -->
             </select>
           </label>
-          <label class="flex flex-col gap-1 text-xs text-muted flex-1">
+          <label class="flex flex-col gap-1 text-xs text-muted flex-1 min-w-0">
             Codex model
             <select id="override-codex-model"
-              class="bg-userPanel border border-white/20 rounded px-2 py-1.5 text-user focus:outline-none">
+              class="bg-userPanel border border-white/20 rounded px-2 py-1.5 text-user focus:outline-none w-full min-w-0">
               <!-- options injected by app.js -->
             </select>
           </label>
