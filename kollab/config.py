@@ -56,6 +56,30 @@ MCP_PACKAGES = {
 _MCP_DIR = Path("~/.kollab/mcp").expanduser()
 
 
+def resolve_codex_model(model: str, catalog: list[dict]) -> str:
+    """Validate `model` against a (possibly empty) resolved catalog.
+
+    - Empty catalog (e.g. before the first successful `codex debug models`
+      fetch this run) means "nothing to validate against yet" — the
+      candidate is preserved as-is rather than wiped just because we
+      haven't resolved a catalog this pass.
+    - Non-empty catalog: a candidate that matches a known slug passes
+      through unchanged; a blank or now-unknown (e.g. retired) one falls
+      back to the catalog's top (most current) entry.
+    """
+    if not catalog:
+        return model
+    known_slugs = {m.get("slug") for m in catalog}
+    if model and model in known_slugs:
+        return model
+    if model:
+        log.warning(
+            "codex_model '%s' is not in the known model catalog — resetting to default",
+            model,
+        )
+    return catalog[0]["slug"]
+
+
 class WebhookConfig(BaseModel):
     enabled: bool = False
     targets: list[str] = []
@@ -202,16 +226,10 @@ def load_config() -> Config:
     # A codex_model pinned to a slug the provider has since retired (e.g. the
     # pre-catalog "gpt-5.4") would otherwise silently break every Codex turn
     # forever. Fall back to the catalog's top (most current) entry rather
-    # than fail on a stale pin the user never chose to move off of.
-    known_slugs = {m.get("slug") for m in cfg.codex_model_catalog}
-    if cfg.codex_model and cfg.codex_model not in known_slugs:
-        log.warning(
-            "codex_model '%s' is not in the known model catalog — resetting to default",
-            cfg.codex_model,
-        )
-        cfg.codex_model = ""
-    if not cfg.codex_model and cfg.codex_model_catalog:
-        cfg.codex_model = cfg.codex_model_catalog[0]["slug"]
+    # than fail on a stale pin the user never chose to move off of — but only
+    # when there's an actual catalog to validate against (see
+    # resolve_codex_model's docstring).
+    cfg.codex_model = resolve_codex_model(cfg.codex_model, cfg.codex_model_catalog)
 
     # expand tildes on all path fields
     cfg.claude_workdir = _expand(cfg.claude_workdir)

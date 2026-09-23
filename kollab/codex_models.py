@@ -26,9 +26,21 @@ async def fetch_codex_catalog(binary: str) -> list[dict]:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_FETCH_TIMEOUT_SECS)
     except Exception as exc:
         log.warning("codex model catalog fetch failed to launch: %s", exc)
+        return []
+
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_FETCH_TIMEOUT_SECS)
+    except asyncio.TimeoutError:
+        # wait_for only abandons *our* await — the subprocess itself keeps
+        # running unless we kill it explicitly, leaking an orphaned process.
+        log.warning("codex model catalog fetch timed out after %ss, killing it", _FETCH_TIMEOUT_SECS)
+        proc.kill()
+        await proc.wait()
+        return []
+    except Exception as exc:
+        log.warning("codex model catalog fetch failed: %s", exc)
         return []
 
     if proc.returncode != 0:

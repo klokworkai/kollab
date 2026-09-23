@@ -27,7 +27,7 @@ from .attachments import (
     is_allowed_mime,
     stage_file,
 )
-from .config import Config, MODEL_ALIASES, load_config, save_config, validate_config, next_session_number
+from .config import Config, MODEL_ALIASES, load_config, resolve_codex_model, save_config, validate_config, next_session_number
 from .codex_models import build_catalog, fetch_codex_catalog
 from .runtime_logging import reset_escalation
 from .ace import Session, SessionOverrides
@@ -137,8 +137,11 @@ async def _refresh_codex_model_catalog() -> None:
     raw = await fetch_codex_catalog(_cfg.codex_binary)
     if raw:
         _cfg.codex_model_catalog = build_catalog(raw)
-        if not _cfg.codex_model and _cfg.codex_model_catalog:
-            _cfg.codex_model = _cfg.codex_model_catalog[0]["slug"]
+        # Reconcile the currently selected model against this freshly
+        # resolved catalog too — not just at config load — so a model that
+        # got retired between launches doesn't stay silently selected for
+        # this entire run.
+        _cfg.codex_model = resolve_codex_model(_cfg.codex_model, _cfg.codex_model_catalog)
         save_config(_cfg)
 
 

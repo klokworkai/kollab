@@ -165,9 +165,12 @@ class CodexAgent(Agent):
         if proc.returncode != 0 or not text_buf:
             stderr_text = b"".join(stderr_buf).decode("utf-8", errors="replace").strip()
             agent_error = agent_error or stderr_text or f"codex exec exited {proc.returncode} with no output"
+            # cmd's last element is the prompt (system prompt + goal + peer
+            # turn text) — never write that to disk, only the flags used.
+            redacted_cmd = cmd[:-1] + [f"<prompt redacted, {len(cmd[-1])} chars>"]
             log.warning(
                 "codex exec exited %s with no usable output — cmd=%s stderr=%s",
-                proc.returncode, cmd, stderr_text or "(empty)",
+                proc.returncode, redacted_cmd, stderr_text or "(empty)",
             )
         yield AgentChunk(
             kind="done",
