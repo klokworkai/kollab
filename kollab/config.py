@@ -201,15 +201,17 @@ def load_config() -> Config:
 
     # A codex_model pinned to a slug the provider has since retired (e.g. the
     # pre-catalog "gpt-5.4") would otherwise silently break every Codex turn
-    # forever. Reset to account default rather than fail on a stale pin the
-    # user never chose to move off of.
+    # forever. Fall back to the catalog's top (most current) entry rather
+    # than fail on a stale pin the user never chose to move off of.
     known_slugs = {m.get("slug") for m in cfg.codex_model_catalog}
     if cfg.codex_model and cfg.codex_model not in known_slugs:
         log.warning(
-            "codex_model '%s' is not in the known model catalog — resetting to account default",
+            "codex_model '%s' is not in the known model catalog — resetting to default",
             cfg.codex_model,
         )
-        cfg.codex_model = DEFAULT_CODEX_MODEL
+        cfg.codex_model = ""
+    if not cfg.codex_model and cfg.codex_model_catalog:
+        cfg.codex_model = cfg.codex_model_catalog[0]["slug"]
 
     # expand tildes on all path fields
     cfg.claude_workdir = _expand(cfg.claude_workdir)

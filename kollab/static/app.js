@@ -1547,14 +1547,12 @@ const MODEL_MATRIX = {
 };
 
 // Builds the live Codex dropdown options from cfg.codex_model_catalog
-// (kollab/codex_models.py, resolved from `codex debug models` at startup).
+// (kollab/codex_models.py, resolved from `codex debug models` at startup,
+// sorted most-current-first — index 0 is the default).
 function codexOptionsFromConfig(cfg) {
   const catalog = cfg && cfg.codex_model_catalog;
   if (!catalog || catalog.length === 0) return MODEL_MATRIX.codex;
-  return [
-    { label: 'account default', model: '' },
-    ...catalog.map(m => ({ label: m.display_name, model: m.slug })),
-  ];
+  return catalog.map(m => ({ label: m.display_name, model: m.slug }));
 }
 
 // Configs saved before kollab switched to floating tier aliases (see
@@ -1578,7 +1576,7 @@ function populateSelect(selectEl, agentKey, currentValue, options) {
   for (const m of list) {
     const opt = document.createElement('option');
     opt.value = m.model;
-    opt.textContent = agentKey === 'claude' ? `${m.label} (auto-updates to latest)` : m.label;
+    opt.textContent = agentKey === 'claude' ? `${m.label} (latest)` : m.label;
     if (m.model === normalized) opt.selected = true;
     selectEl.appendChild(opt);
   }
@@ -1835,7 +1833,7 @@ document.getElementById('btn-configure').addEventListener('click', async () => {
       for (const m of options) {
         const o = document.createElement('option');
         o.value = m.model;
-        o.textContent = f.agentKey === 'claude' ? `${m.label} (auto-updates to latest)` : m.label;
+        o.textContent = f.agentKey === 'claude' ? `${m.label} (latest)` : m.label;
         if (normalized === m.model) o.selected = true;
         input.appendChild(o);
       }

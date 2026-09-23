@@ -129,6 +129,8 @@ async def _refresh_codex_model_catalog() -> None:
     raw = await fetch_codex_catalog(_cfg.codex_binary)
     if raw:
         _cfg.codex_model_catalog = build_catalog(raw)
+        if not _cfg.codex_model and _cfg.codex_model_catalog:
+            _cfg.codex_model = _cfg.codex_model_catalog[0]["slug"]
         save_config(_cfg)
 
 
